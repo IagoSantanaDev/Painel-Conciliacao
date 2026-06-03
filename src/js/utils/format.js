@@ -38,8 +38,26 @@ export function parseMoneyBR(value) {
   if (!raw) return 0;
   raw = raw.replace(/[^\d,.-]/g, '');
   if (raw.includes(',')) raw = raw.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, '');
   const n = Number.parseFloat(raw);
   return Number.isFinite(n) ? n : 0;
+}
+
+export function parseMoneyBRStrict(value) {
+  if (typeof value === 'number') {
+    return { value: Number.isFinite(value) ? value : 0, valid: Number.isFinite(value) };
+  }
+
+  const original = String(value ?? '').trim();
+  if (!original) return { value: 0, valid: false };
+
+  const compact = original.replace(/R\$/gi, '').replace(/\s/g, '');
+  const hasOnlyMoneyChars = compact === compact.replace(/[^\d,.-]/g, '');
+  const ptBrFormat = /^-?(\d+|\d{1,3}(\.\d{3})+)(,\d{1,2})?$/.test(compact);
+  const decimalDotFormat = /^-?\d+(\.\d{1,2})?$/.test(compact);
+  const valid = hasOnlyMoneyChars && (ptBrFormat || decimalDotFormat);
+
+  return { value: valid ? parseMoneyBR(original) : 0, valid };
 }
 
 export function formatMoney(value) {

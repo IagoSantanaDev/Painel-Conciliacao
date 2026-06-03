@@ -1,9 +1,9 @@
 import { parseBiMv } from './parsers/biMvParser.js';
 import { parseCielo } from './parsers/cieloParser.js';
 import { parseTasyPdf } from './parsers/pdfTasyParser.js';
-import { buildCieloIndex, reconcileOne, reconcileRows } from './services/reconciliation.js';
+import { buildCieloIndex, isOkRow, reconcileOne, reconcileRows } from './services/reconciliation.js';
 import { exportTd } from './services/exportTd.js';
-import { normalizeAuth, parseMoneyBR } from './utils/format.js';
+import { normalizeAuth, parseMoneyBRStrict } from './utils/format.js';
 import { getElements } from './ui/dom.js';
 import { renderAll, renderUploadSummary, setLoading, showAlert } from './ui/render.js';
 
@@ -67,7 +67,11 @@ async function processar() {
     state.currentFilter = 'todos';
 
     renderAll(el, state, handleFilterChange);
-    showAlert(el, 'success', `${state.dadosFinal.length} registro(s) processado(s). Revise as pendências antes de exportar.`);
+    const blockingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
+    const exportMessage = blockingRows > 0
+      ? `${blockingRows} linha(s) precisam de revisão antes da exportação.`
+      : 'Exportação TD liberada.';
+    showAlert(el, 'success', `${state.dadosFinal.length} registro(s) processado(s). ${exportMessage}`);
   } catch (error) {
     console.error(error);
     showAlert(el, 'error', error.message || 'Não foi possível processar os arquivos.');
@@ -83,7 +87,14 @@ async function parseHospitalFile(file) {
 
 function atualizar(index, campo, valor) {
   const row = { ...state.dadosFinal[index] };
-  if (['valorCartao', 'valorDinheiro', 'valorFatura'].includes(campo)) row[campo] = parseMoneyBR(valor);
+  if (['valorCartao', 'valorDinheiro', 'valorFatura'].includes(campo)) {
+    const parsed = parseMoneyBRStrict(valor);
+    if (!parsed.valid) {
+      showAlert(el, 'error', 'Informe um valor monetário válido, como 123,45 ou 1.234,56.');
+      return;
+    }
+    row[campo] = parsed.value;
+  }
   else if (campo === 'autorizador') row[campo] = normalizeAuth(valor);
   else row[campo] = valor;
 

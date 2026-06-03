@@ -14,12 +14,19 @@ export function reconcileOne(row, cieloIndex) {
     observacoes: [...(row.observacoes || [])],
   };
 
+  if (result.valorCartao <= 0 && result.valorDinheiro <= 0 && hasFinancialReference(result)) {
+    result.status.push('Sem valor de pagamento');
+  }
+
   if (result.valorCartao > 0) {
     if (!result.autorizador) {
       result.status.push('Sem autorizador');
     } else {
-      const { sale, ambiguous } = pickCieloSale(result, cieloIndex);
-      if (!sale) {
+      const { sale, ambiguous, candidates } = pickCieloSale(result, cieloIndex);
+      if (ambiguous && !sale) {
+        result.status.push('Pendente revisão');
+        result.observacoes.push(`Autorizador duplicado na Cielo com ${candidates.length} venda(s) candidata(s); selecione a venda correta antes de exportar.`);
+      } else if (!sale) {
         result.status.push('Não encontrado na Cielo');
       } else {
         result.cielo = sale;
@@ -72,23 +79,31 @@ export function buildCieloIndex(cieloRows) {
 
 export function isOkRow(row) {
   return ['Conciliado', 'Dinheiro', 'Pagamento misto'].includes(row.statusLabel)
-    && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador'));
+    && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
+}
+
+function hasFinancialReference(row) {
+  return (row.valorFatura || 0) > 0
+    || Boolean(row.registro)
+    || Boolean(row.contaFatura)
+    || Boolean(row.autorizador);
 }
 
 function pickCieloSale(hospitalRow, cieloIndex) {
   const matches = cieloIndex.get(hospitalRow.autorizador) || [];
-  if (!matches.length) return { sale: null, ambiguous: false };
+  if (!matches.length) return { sale: null, ambiguous: false, candidates: [] };
 
   const exact = matches.filter(sale => Math.abs((hospitalRow.valorCartao || 0) - (sale.valorBruto || 0)) <= 0.01);
-  if (exact.length === 1) return { sale: exact[0], ambiguous: false };
-  if (exact.length > 1) return { sale: exact[0], ambiguous: true };
-  return { sale: matches[0], ambiguous: matches.length > 1 };
+  if (exact.length === 1) return { sale: exact[0], ambiguous: false, candidates: exact };
+  if (matches.length === 1) return { sale: matches[0], ambiguous: false, candidates: matches };
+
+  return { sale: null, ambiguous: true, candidates: exact.length ? exact : matches };
 }
 
 function getStatusLabel(status) {
   if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return 'Divergente';
   if (status.includes('Não encontrado na Cielo')) return 'Não encontrado';
-  if (status.includes('Sem autorizador') || status.includes('Pendente revisão')) return 'Pendente';
+  if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return 'Pendente';
   if (status.includes('Dinheiro OK')) return 'Dinheiro';
   if (status.includes('Pagamento misto')) return 'Pagamento misto';
   return 'Conciliado';

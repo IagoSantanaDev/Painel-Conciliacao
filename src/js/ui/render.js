@@ -31,11 +31,13 @@ export function renderUploadSummary(el) {
 
 export function renderAll(el, state, onFilterChange) {
   const hasRows = state.dadosFinal.length > 0;
+  const blockingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
   el.metricsGrid.classList.toggle('hidden', !hasRows);
   el.toolbar.classList.toggle('hidden', !hasRows);
   el.emptyState.classList.toggle('hidden', hasRows);
   el.tableWrap.classList.toggle('hidden', !hasRows);
-  el.exportBtn.disabled = !hasRows;
+  el.exportBtn.disabled = !hasRows || blockingRows > 0;
+  el.exportBtn.title = blockingRows > 0 ? `Revise ${blockingRows} linha(s) antes de exportar.` : '';
   if (el.heroStatus) {
     el.heroStatus.textContent = hasRows ? 'Conciliação processada' : 'Aguardando arquivos';
   }
@@ -150,7 +152,7 @@ function renderStatusBadges(status) {
     let cls = 'neutral';
     if (item.includes('Conciliado') || item.includes('Dinheiro OK')) cls = 'success';
     else if (item.includes('Divergência') || item.includes('Diferença') || item.includes('Não encontrado') || item.includes('Sem autorizador')) cls = 'danger';
-    else if (item.includes('Pendente')) cls = 'warning';
+    else if (item.includes('Pendente') || item.includes('Sem valor')) cls = 'warning';
     else if (item.includes('misto')) cls = 'info';
     return `<span class="badge ${cls}">${escapeHtml(item)}</span>`;
   }).join('');
