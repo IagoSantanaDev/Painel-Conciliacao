@@ -15,3 +15,5 @@
 # Documentação local gerada/fornecida fora do versionamento
 docs/
 @docs/
+
+.mcp.json
