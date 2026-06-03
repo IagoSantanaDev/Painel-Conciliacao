@@ -1,0 +1,17 @@
+# Artefatos e configurações locais de IA/agentes
+.gsd/
+.bg-shell/
+.claude/
+.cursor/
+.windsurf/
+.continue/
+.codex/
+.gemini/
+.copilot/
+.mcp.json
+*.ai.md
+*.llm.md
+
+# Documentação local gerada/fornecida fora do versionamento
+docs/
+@docs/

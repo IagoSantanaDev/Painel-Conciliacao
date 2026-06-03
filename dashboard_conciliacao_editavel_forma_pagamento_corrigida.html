@@ -1,0 +1,329 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Dashboard Conciliação Editável</title>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body{font-family:Arial;margin:40px;background:#f5f5f5}
+.container{background:white;padding:20px;border-radius:8px;margin-bottom:20px}
+button{padding:10px 15px;margin-top:10px;margin-right:10px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border:1px solid #ddd;padding:6px;text-align:left}
+th{background:#eee}
+.status-green{background:#d9f2d9}
+.status-red{background:#ffd6d6}
+input.edit{width:90%;border:1px solid #ccc;padding:3px}
+</style>
+</head>
+
+<body>
+
+<h2>Dashboard de Conciliação (Editável)</h2>
+
+<div class="container">
+<h3>Importar arquivos</h3>
+
+BI HSR:
+<input type="file" id="biFile"><br><br>
+
+Vendas Cielo:
+<input type="file" id="cieloFile"><br><br>
+
+<button onclick="processar()">Fazer Conciliação</button>
+<button onclick="exportTD()">Exportar TD</button>
+</div>
+
+<div class="container">
+<h3>Tabela de Conciliação</h3>
+
+<table id="tabela">
+<thead>
+<tr>
+<th>Número Registro</th>
+<th>Caixa</th>
+<th>Lote</th>
+<th>Autorizador</th>
+<th>Valor Cartão</th>
+<th>Valor Dinheiro</th>
+<th>Valor Fatura</th>
+<th>Desconto</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+</div>
+
+<script>
+
+let dadosFinal=[]
+
+function padAuth(v){
+if(!v) return ""
+v=v.toString().replace(".0","").trim()
+return v.padStart(6,"0")
+}
+
+function toNumber(v){
+if(!v) return 0
+return parseFloat(v.toString().replace("R$","").replace(/\./g,"").replace(",",".") ) || 0
+}
+
+function getAutorizador(row){
+for(let key in row){
+if(key.toLowerCase().includes("autoriz")){
+let val=row[key]
+if(val && val!==""){
+return padAuth(val)
+}
+}
+}
+return ""
+}
+
+function getDesconto(row){
+for(let key in row){
+if(key.toLowerCase().includes("desconto")){
+return row[key] || ""
+}
+}
+return ""
+}
+
+function getFormaPagamento(row){
+
+return row["Débito/Crédito"] ||
+row[" Débito/Crédito"] ||
+row["Débito/ Crédito"] ||
+row["Debito/ Credito"] ||
+""
+
+}
+
+function processar(){
+
+let biFile=document.getElementById("biFile").files[0]
+let cieloFile=document.getElementById("cieloFile").files[0]
+
+if(!biFile || !cieloFile){
+alert("Importe BI HSR e Vendas Cielo")
+return
+}
+
+Papa.parse(biFile,{
+header:true,
+skipEmptyLines:true,
+complete:function(bi){
+
+Papa.parse(cieloFile,{
+header:true,
+skipEmptyLines:true,
+complete:function(cielo){
+
+let cieloMap={}
+
+cielo.data.forEach(r=>{
+
+let auth=padAuth(r["Código de autorização"]||r["Codigo de Autorização"])
+
+cieloMap[auth]={valor:toNumber(r["Valor bruto"]||r["Valor"])}
+
+})
+
+dadosFinal=[]
+
+bi.data.forEach(r=>{
+
+let registro=r["Número Registro"]||r["Numero Registro"]||""
+let caixa=r["Caixa"]||""
+let lote=r["Lote"]||""
+let desconto=getDesconto(r)
+let formaPagamento=getFormaPagamento(r)
+
+let auth=getAutorizador(r)
+
+let valorCartao=toNumber(r["Valor Cartão"])
+let valorDinheiro=toNumber(r["Valor Dinheiro"])
+let valorFatura=toNumber(r["Valor Fatura"])
+
+let status=[]
+
+let cielo=cieloMap[auth]
+
+if(valorCartao>0){
+
+if(!cielo){
+status.push("Não encontrado na Cielo")
+}else if(Math.abs(valorCartao-cielo.valor)>0.01){
+status.push("Divergência valor cartão")
+}
+
+}
+
+if(valorDinheiro>0 && valorCartao==0){
+
+if(Math.abs(valorDinheiro-valorFatura)>0.01){
+status.push("Dinheiro Diferença")
+}else{
+status.push("Dinheiro OK")
+}
+
+}
+
+if(valorCartao>0 && valorDinheiro>0){
+status.push("Pagamento misto")
+}
+
+if(status.length==0){
+status.push("Conciliado")
+}
+
+dadosFinal.push({
+registro,
+caixa,
+lote,
+auth,
+valorCartao,
+valorDinheiro,
+valorFatura,
+desconto,
+formaPagamento,
+status:status.join(" | "),
+bi:r
+})
+
+})
+
+renderTabela()
+
+}
+})
+
+}
+})
+
+}
+
+function renderTabela(){
+
+let tbody=document.querySelector("#tabela tbody")
+tbody.innerHTML=""
+
+dadosFinal.forEach((r,index)=>{
+
+let tr=document.createElement("tr")
+
+if(r.status.includes("Conciliado") || r.status.includes("Dinheiro OK")){
+tr.className="status-green"
+}else{
+tr.className="status-red"
+}
+
+function cell(value,field){
+if(!r.status.includes("Conciliado")){
+return `<input class="edit" value="${value}" onchange="atualizar(${index},'${field}',this.value)">`
+}else{
+return value
+}
+}
+
+tr.innerHTML=`
+<td>${r.registro}</td>
+<td>${cell(r.caixa,'caixa')}</td>
+<td>${cell(r.lote,'lote')}</td>
+<td>${cell(r.auth,'auth')}</td>
+<td>${cell(r.valorCartao,'valorCartao')}</td>
+<td>${cell(r.valorDinheiro,'valorDinheiro')}</td>
+<td>${cell(r.valorFatura,'valorFatura')}</td>
+<td>${cell(r.desconto,'desconto')}</td>
+<td>${r.status}</td>
+`
+
+tbody.appendChild(tr)
+
+})
+
+}
+
+function atualizar(i,campo,valor){
+
+if(campo==="valorCartao" || campo==="valorDinheiro" || campo==="valorFatura"){
+dadosFinal[i][campo]=parseFloat(valor)||0
+}else{
+dadosFinal[i][campo]=valor
+}
+
+}
+
+function exportTD(){
+
+let dadosTD=[]
+
+dadosFinal.forEach(r=>{
+
+let bi=r.bi
+
+let observacao=""
+
+if(r.desconto && r.desconto!=0 && !r.status.includes("Conciliado")){
+observacao="Desconto identificado: "+r.desconto
+}
+
+if(r.valorCartao>0){
+
+dadosTD.push({
+"Data pag/RPS":bi["Data Pagamento"],
+"Data banco":bi["Data Pagamento"],
+"Aten/Registro":r.registro,
+"Conta/Fatura":bi["Número Fatura RPS"]||bi["Numero Fatura RPS"],
+"Valor Fatura":r.valorFatura,
+"Valor Banco":r.valorCartao,
+"Evento":"Particular",
+"Forma de Pagamento":r.formaPagamento,
+"Parcela":bi["Parcelas"],
+"Conta de Crédito":"",
+"Observação":observacao,
+"Autorizador":r.auth
+})
+
+}
+
+if(r.valorDinheiro>0){
+
+dadosTD.push({
+"Data pag/RPS":bi["Data Pagamento"],
+"Data banco":bi["Data Pagamento"],
+"Aten/Registro":r.registro,
+"Conta/Fatura":bi["Número Fatura RPS"]||bi["Numero Fatura RPS"],
+"Valor Fatura":r.valorFatura,
+"Valor Banco":r.valorDinheiro,
+"Evento":"Particular",
+"Forma de Pagamento":"ESPÉCIE",
+"Parcela":"",
+"Conta de Crédito":"",
+"Observação":observacao,
+"Autorizador":""
+})
+
+}
+
+})
+
+let ws=XLSX.utils.json_to_sheet(dadosTD)
+let wb=XLSX.utils.book_new()
+
+XLSX.utils.book_append_sheet(wb,ws,"TD")
+
+XLSX.writeFile(wb,"exportacao_TD.xlsx")
+
+}
+
+</script>
+</body>
+</html>
