@@ -8,7 +8,7 @@ import { getElements } from './ui/dom.js';
 import { renderAll, renderUploadSummary, setLoading, showAlert } from './ui/render.js';
 
 if (window.pdfjsLib) {
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.js', import.meta.url).toString();
 }
 
 const state = {
@@ -38,6 +38,7 @@ el.tabelaBody.addEventListener('change', event => {
 
 renderAll(el, state, handleFilterChange);
 renderUploadSummary(el);
+validateRuntimeDependencies();
 
 async function processar() {
   const hospitalFile = el.hospitalFile.files[0];
@@ -164,6 +165,19 @@ function exportarTd() {
     console.error(error);
     showAlert(el, 'error', error.message || 'Não foi possível gerar o arquivo .xlsx.');
   }
+}
+
+function validateRuntimeDependencies() {
+  const missing = [];
+  if (!window.Papa) missing.push('PapaParse');
+  if (!window.XLSX) missing.push('SheetJS/XLSX');
+  if (!window.pdfjsLib) missing.push('pdf.js');
+
+  if (!missing.length) return;
+
+  el.processBtn.disabled = true;
+  el.exportBtn.disabled = true;
+  showAlert(el, 'error', `Bibliotecas locais não carregadas: ${missing.join(', ')}. Verifique os arquivos em src/vendor.`);
 }
 
 function handleFilterChange(filter) {
