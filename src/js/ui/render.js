@@ -31,13 +31,12 @@ export function renderUploadSummary(el) {
 
 export function renderAll(el, state, onFilterChange) {
   const hasRows = state.dadosFinal.length > 0;
-  const blockingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
   el.metricsGrid.classList.toggle('hidden', !hasRows);
   el.toolbar.classList.toggle('hidden', !hasRows);
   el.emptyState.classList.toggle('hidden', hasRows);
   el.tableWrap.classList.toggle('hidden', !hasRows);
-  el.exportBtn.disabled = !hasRows || blockingRows > 0;
-  el.exportBtn.title = blockingRows > 0 ? `Revise ${blockingRows} linha(s) antes de exportar.` : '';
+  el.exportBtn.disabled = !hasRows;
+  el.exportBtn.title = hasRows ? 'Exporta os registros processados, incluindo linhas ainda pendentes para revisão.' : '';
   if (el.heroStatus) {
     el.heroStatus.textContent = hasRows ? 'Conciliação processada' : 'Aguardando arquivos';
   }

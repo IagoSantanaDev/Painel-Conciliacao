@@ -68,9 +68,9 @@ async function processar() {
     state.currentFilter = 'todos';
 
     renderAll(el, state, handleFilterChange);
-    const blockingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
-    const exportMessage = blockingRows > 0
-      ? `${blockingRows} linha(s) precisam de revisão antes da exportação.`
+    const pendingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
+    const exportMessage = pendingRows > 0
+      ? `${pendingRows} linha(s) com pendência para revisão. Exportação TD liberada.`
       : 'Exportação TD liberada.';
     showAlert(el, 'success', `${state.dadosFinal.length} registro(s) processado(s). ${exportMessage}`);
   } catch (error) {

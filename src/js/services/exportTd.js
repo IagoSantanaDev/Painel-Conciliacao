@@ -22,11 +22,6 @@ export function exportTd(dadosFinal) {
     throw new Error('Não há dados processados para exportar.');
   }
 
-  const blockingRows = dadosFinal.filter(row => !isOkRow(row));
-  if (blockingRows.length) {
-    throw new Error(`Revise ${blockingRows.length} linha(s) pendente(s), divergente(s) ou não encontrada(s) antes de exportar.`);
-  }
-
   const dadosTD = buildTdRows(dadosFinal);
   if (!dadosTD.length) {
     throw new Error('Nenhuma linha TD foi gerada. Verifique se existem valores de cartão ou dinheiro nos registros processados.');
