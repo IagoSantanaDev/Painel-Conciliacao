@@ -57,7 +57,7 @@ function computeMetrics(rows) {
     total: rows.length,
     conciliados: rows.filter(isOkRow).length,
     divergentes: rows.filter(row => row.statusLabel === 'Divergente').length,
-    naoEncontrados: rows.filter(row => row.statusLabel === 'Não encontrado').length,
+    semCielo: rows.filter(row => row.status.includes('Não encontrado na Cielo')).length,
     dinheiro: rows.filter(row => row.valorDinheiro > 0).length,
     pendentes: rows.filter(row => row.statusLabel === 'Pendente').length,
     valorCartao: rows.reduce((sum, row) => sum + (row.valorCartao || 0), 0),
@@ -70,7 +70,7 @@ function renderMetrics(el, state) {
     ['Total registros', metrics.total, ''],
     ['Conciliados', metrics.conciliados, 'primary'],
     ['Divergentes', metrics.divergentes, ''],
-    ['Não encontrados', metrics.naoEncontrados, ''],
+    ['Sem Cielo', metrics.semCielo, ''],
     ['Dinheiro/Espécie', metrics.dinheiro, ''],
     ['Valor total cartão', formatMoney(metrics.valorCartao), 'primary'],
   ];
@@ -85,7 +85,8 @@ function renderFilters(el, state, onFilterChange) {
     ['todos', 'Todos'],
     ['conciliado', 'Conciliados'],
     ['divergente', 'Divergentes'],
-    ['naoEncontrado', 'Não encontrados'],
+    ['semCielo', 'Sem Cielo'],
+    ['naoEncontradoSistema', 'Sem sistema'],
     ['dinheiro', 'Dinheiro'],
     ['pendente', 'Pendentes'],
   ];
@@ -103,7 +104,9 @@ function rowMatchesFilter(row, filter) {
   switch (filter) {
     case 'conciliado': return isOkRow(row);
     case 'divergente': return row.statusLabel === 'Divergente';
-    case 'naoEncontrado': return row.statusLabel === 'Não encontrado';
+    case 'semCielo':
+    case 'naoEncontrado': return row.status.includes('Não encontrado na Cielo');
+    case 'naoEncontradoSistema': return row.status.includes('Não encontrado no sistema');
     case 'dinheiro': return row.valorDinheiro > 0;
     case 'pendente': return row.statusLabel === 'Pendente';
     default: return true;
