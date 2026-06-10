@@ -8,7 +8,7 @@ import { getElements } from './ui/dom.js';
 import { renderAll, renderUploadSummary, setLoading, showAlert } from './ui/render.js';
 
 if (window.pdfjsLib) {
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.js', import.meta.url).toString();
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('src/vendor/pdf.worker.min.js', document.baseURI).toString();
 }
 
 const SPREADSHEET_EXTENSIONS = ['csv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods'];
@@ -163,7 +163,7 @@ function setupDropZone(dropZone, input, acceptedExtensions, invalidMessage) {
 
 function exportarTd() {
   try {
-    const result = exportTd(state.dadosFinal);
+    const result = exportTd(state.dadosFinal, { source: state.lastSource });
     showAlert(el, 'success', `${result.filename} gerado com ${result.rowCount} linha(s) na aba TD.`);
   } catch (error) {
     console.error(error);

@@ -17,25 +17,44 @@ export const TD_COLUMNS = [
   'Autorizador',
 ];
 
-export function exportTd(dadosFinal) {
+export const TASY_CIELO_COLUMNS = [
+  'Data RPS',
+  'Data Banco',
+  'Atend/Registro',
+  'Conta/Fatura',
+  'Valor Fatura',
+  'Valor Banco',
+  'Evento',
+  'Forma de pagamento',
+  'Parcela',
+  'Conta crédito',
+  'Observação',
+  'Código autorizador',
+  'Número máquina POS',
+];
+
+export function exportTd(dadosFinal, options = {}) {
   if (!dadosFinal.length) {
     throw new Error('Não há dados processados para exportar.');
   }
 
-  const dadosTD = buildTdRows(dadosFinal);
+  const useTasyCieloLayout = options.source === 'PDF_TASY' || dadosFinal.some(row => row.origem === 'PDF_TASY');
+  const columns = useTasyCieloLayout ? TASY_CIELO_COLUMNS : TD_COLUMNS;
+  const dadosTD = useTasyCieloLayout ? buildTasyCieloRows(dadosFinal) : buildTdRows(dadosFinal);
   if (!dadosTD.length) {
     throw new Error('Nenhuma linha TD foi gerada. Verifique se existem valores de cartão ou dinheiro nos registros processados.');
   }
 
-  const filename = 'exportacao_TD.xlsx';
-  const ws = window.XLSX.utils.json_to_sheet(dadosTD, { header: TD_COLUMNS });
-  ws['!cols'] = TD_COLUMNS.map(column => ({ wch: Math.max(14, column.length + 2) }));
+  const filename = useTasyCieloLayout ? 'exportacao_Tasy_Cielo.xlsx' : 'exportacao_TD.xlsx';
+  const sheetName = useTasyCieloLayout ? 'Tasy Cielo' : 'TD';
+  const ws = window.XLSX.utils.json_to_sheet(dadosTD, { header: columns });
+  ws['!cols'] = columns.map(column => ({ wch: Math.max(14, column.length + 2) }));
 
   const wb = window.XLSX.utils.book_new();
-  window.XLSX.utils.book_append_sheet(wb, ws, 'TD');
+  window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
   downloadWorkbook(wb, filename);
 
-  return { filename, rowCount: dadosTD.length, columns: TD_COLUMNS };
+  return { filename, rowCount: dadosTD.length, columns };
 }
 
 function buildTdRows(dadosFinal) {
@@ -84,6 +103,86 @@ function buildTdRows(dadosFinal) {
   });
 
   return dadosTD;
+}
+
+function buildTasyCieloRows(dadosFinal) {
+  const dadosTD = [];
+
+  dadosFinal.forEach(row => {
+    if (row.valorCartao > 0 || row.valorCielo > 0) {
+      dadosTD.push(createTasyCieloRow({
+        dataRps: row.dataPagamento || row.cielo?.dataVenda || '',
+        dataBanco: '',
+        atendRegistro: row.registro || '',
+        contaFatura: row.contaFatura || '',
+        valorFatura: row.valorFatura || 0,
+        valorBanco: row.cielo?.valorBruto || row.valorCielo || row.valorCartao || 0,
+        evento: 'Particular',
+        formaPagamento: row.formaPagamento || row.cielo?.formaPagamento || '',
+        parcela: row.parcelas || row.cielo?.parcelas || '',
+        contaCredito: '',
+        observacao: '',
+        codigoAutorizador: row.autorizador || row.cielo?.autorizador || '',
+        numeroMaquinaPos: isMissingInSystem(row) ? (row.cielo?.numeroMaquina || '') : '',
+      }));
+    }
+
+    if (row.valorDinheiro > 0) {
+      dadosTD.push(createTasyCieloRow({
+        dataRps: row.dataPagamento || '',
+        dataBanco: '',
+        atendRegistro: row.registro || '',
+        contaFatura: row.contaFatura || '',
+        valorFatura: row.valorFatura || 0,
+        valorBanco: row.valorDinheiro || 0,
+        evento: 'Particular',
+        formaPagamento: 'ESPÉCIE',
+        parcela: '',
+        contaCredito: '',
+        observacao: '',
+        codigoAutorizador: '',
+        numeroMaquinaPos: '',
+      }));
+    }
+  });
+
+  return dadosTD;
+}
+
+function isMissingInSystem(row) {
+  return row.status?.includes('Não encontrado no sistema');
+}
+
+function createTasyCieloRow({
+  dataRps,
+  dataBanco,
+  atendRegistro,
+  contaFatura,
+  valorFatura,
+  valorBanco,
+  evento,
+  formaPagamento,
+  parcela,
+  contaCredito,
+  observacao,
+  codigoAutorizador,
+  numeroMaquinaPos,
+}) {
+  return {
+    'Data RPS': dataRps,
+    'Data Banco': dataBanco,
+    'Atend/Registro': atendRegistro,
+    'Conta/Fatura': contaFatura,
+    'Valor Fatura': valorFatura,
+    'Valor Banco': valorBanco,
+    'Evento': evento,
+    'Forma de pagamento': formaPagamento,
+    'Parcela': parcela,
+    'Conta crédito': contaCredito,
+    'Observação': observacao,
+    'Código autorizador': codigoAutorizador,
+    'Número máquina POS': numeroMaquinaPos,
+  };
 }
 
 function createTdRow({

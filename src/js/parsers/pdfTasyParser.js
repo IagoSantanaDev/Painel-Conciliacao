@@ -10,12 +10,13 @@ import {
 export async function parseTasyPdf(file) {
   if (!window.pdfjsLib) throw new Error('Biblioteca pdf.js não carregada.');
 
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await window.pdfjsLib.getDocument({ data }).promise;
+  const data = await file.arrayBuffer();
+  const pdf = await loadPdfDocument(data);
   const warnings = [];
   const rows = [];
   let ignoredLines = 0;
   let operador = '';
+  let currentDocumentInfo = { titulo: '', notaFiscal: '' };
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
@@ -28,9 +29,11 @@ export async function parseTasyPdf(file) {
 
       const opMatch = line.match(/^(.+?)\s+Dt\s+Saldo:/i);
       if (opMatch) operador = cleanOperatorName(opMatch[1]);
+      const documentInfo = extractTasyDocumentInfo(line);
+      if (documentInfo.titulo || documentInfo.notaFiscal) currentDocumentInfo = documentInfo;
       if (shouldIgnorePdfLine(line)) { ignoredLines++; continue; }
 
-      const directRows = extractTasyRowsFromLine(line, pageNumber, operador);
+      const directRows = extractTasyRowsFromLine(line, pageNumber, operador, currentDocumentInfo);
       if (directRows.length) {
         rows.push(...directRows);
         continue;
@@ -61,7 +64,7 @@ export async function parseTasyPdf(file) {
         continue;
       }
 
-      rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount }));
+      rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo: currentDocumentInfo }));
     }
 
     page.cleanup && page.cleanup();
@@ -69,6 +72,31 @@ export async function parseTasyPdf(file) {
 
   if (!rows.length) throw new Error('Nenhuma transação válida foi encontrada no PDF.');
   return { rows, warnings, ignoredLines, pagesRead: pdf.numPages, source: 'PDF_TASY' };
+}
+
+async function loadPdfDocument(data) {
+  try {
+    return await getPdfDocument(data, false);
+  } catch (error) {
+    if (!isPdfWorkerLoadError(error)) throw error;
+    console.warn('Falha ao carregar worker do pdf.js; usando fallback sem worker.', error);
+    return getPdfDocument(data, true);
+  }
+}
+
+function getPdfDocument(data, disableWorker) {
+  return window.pdfjsLib.getDocument({
+    data: new Uint8Array(data.slice(0)),
+    disableWorker,
+  }).promise;
+}
+
+function isPdfWorkerLoadError(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('Setting up fake worker failed')
+    || message.includes('Cannot load script')
+    || message.includes('Failed to construct')
+    || message.includes('Worker');
 }
 
 function groupPdfTextItems(items) {
@@ -97,6 +125,23 @@ function groupPdfTextItems(items) {
   return { axis, lines };
 }
 
+function extractTasyDocumentInfo(line) {
+  const marker = line.search(/CX\s*-\s*Recebimento\s+de\s+T[ií]tulo\s+Particular/i);
+  if (marker < 0) return { titulo: '', notaFiscal: '' };
+
+  const tail = line.slice(marker).replace(/CX\s*-\s*Recebimento\s+de\s+T[ií]tulo\s+Particular/i, '').trim();
+  const tokens = tail.split(/\s+/).filter(Boolean);
+  const tituloIndex = tokens.findIndex(token => isDocumentToken(token));
+  const titulo = tituloIndex >= 0 ? tokens[tituloIndex] : '';
+  const notaFiscal = tituloIndex >= 0 ? (tokens.slice(tituloIndex + 1).find(token => isDocumentToken(token)) || '') : '';
+
+  return { titulo, notaFiscal };
+}
+
+function isDocumentToken(token) {
+  return /^\d+$/.test(token) && !/^0+$/.test(token);
+}
+
 function matchTasyAuthorization(line) {
   const match = line.match(/Aut:\s*([A-Za-z0-9]+)\s*-\s*CV\/Doc:\s*-\s*(Cr[eé]dito|Credito|D[eé]bito|Debito)\s*-\s*(.*?)(?=\s+CX\s*-|\s+TE\s*-|\s+[\d.]+,\d{2}|$)/i);
   if (!match) return null;
@@ -107,7 +152,7 @@ function matchTasyAuthorization(line) {
   };
 }
 
-function extractTasyRowsFromLine(line, pageNumber, operador) {
+function extractTasyRowsFromLine(line, pageNumber, operador, documentInfo = { titulo: '', notaFiscal: '' }) {
   const dateMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})/);
   if (!dateMatch) return [];
 
@@ -115,7 +160,7 @@ function extractTasyRowsFromLine(line, pageNumber, operador) {
   const authMatch = matchTasyAuthorization(line);
   if (authMatch && /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i.test(line)) {
     const amount = extractReceiptAmount(line, /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i);
-    if (amount) rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine: line, dateMatch, authMatch, amount }));
+    if (amount) rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine: line, dateMatch, authMatch, amount, documentInfo }));
   }
 
   if (/CX\s*-\s*Recebimento\s+Especie/i.test(line)) {
@@ -134,17 +179,17 @@ function extractReceiptAmount(line, receiptRegex) {
   return amounts[0] || '';
 }
 
-function createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount }) {
+function createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo = { titulo: '', notaFiscal: '' } }) {
   const valorCartao = parseMoneyBR(amount);
   return {
     idInterno: createId('pdf-card', `${pageNumber}-${authMatch.autorizador}`),
     origem: 'PDF_TASY',
     dataPagamento: dateMatch[1],
     horaPagamento: dateMatch[2],
-    registro: '',
+    registro: documentInfo.titulo || '',
     caixa: operador,
     lote: '',
-    contaFatura: '',
+    contaFatura: documentInfo.notaFiscal || '',
     autorizador: authMatch.autorizador,
     valorCartao,
     valorDinheiro: 0,
@@ -155,7 +200,7 @@ function createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, au
     bandeira: authMatch.bandeira,
     parcelas: '',
     observacoes: ['Extraído do PDF Tasy'],
-    raw: { pageNumber, authLine: line, valueLine },
+    raw: { pageNumber, authLine: line, valueLine, documentInfo },
   };
 }
 
