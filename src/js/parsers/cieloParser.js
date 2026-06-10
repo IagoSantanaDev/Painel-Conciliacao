@@ -3,17 +3,40 @@ import {
   getValue,
   normalizeAuth,
   normalizeBrand,
+  normalizeHeader,
   normalizePaymentMethod,
   parseMoneyBR,
 } from '../utils/format.js';
-import { parseCsvObjects } from './fileReaders.js';
+import { parseCsvRows, parseWorkbookRows, rowsToObjects } from './fileReaders.js';
+
+const CSV_EXTENSION = 'csv';
+const CIELO_SPREADSHEET_EXTENSIONS = new Set(['csv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 
 export async function parseCielo(file) {
-  const { rows, errors } = await parseCsvObjects(file);
-  const warnings = errors.map(error => `Cielo CSV: ${error.message || 'aviso de leitura'}`);
-  const sales = rows.map((row, index) => mapCieloRow(row, index)).filter(Boolean);
-  if (!sales.some(sale => sale.autorizador)) throw new Error('O CSV Cielo não possui coluna de autorização reconhecida.');
-  return { rows: sales, warnings };
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!CIELO_SPREADSHEET_EXTENSIONS.has(ext)) {
+    throw new Error('Use CSV, XLSX, XLS, XLSM, XLSB ou ODS no arquivo Cielo.');
+  }
+
+  const rows = ext === CSV_EXTENSION ? await parseCsvRows(file) : await parseWorkbookRows(file);
+  const headerIndex = findCieloHeaderRow(rows);
+  if (headerIndex < 0) throw new Error('A planilha Cielo não possui cabeçalho de vendas reconhecido.');
+
+  const objects = rowsToObjects(rows, headerIndex);
+  const sales = objects.map((row, index) => mapCieloRow(row, index)).filter(Boolean);
+  if (!sales.some(sale => sale.autorizador)) throw new Error('A planilha Cielo não possui coluna de autorização reconhecida.');
+
+  return { rows: sales, warnings: [], ignoredRows: headerIndex, source: 'CIELO' };
+}
+
+function findCieloHeaderRow(rows) {
+  return rows.findIndex(row => {
+    const headers = row.map(normalizeHeader);
+    const hasSaleDate = headers.some(header => header.includes('data da venda'));
+    const hasGrossValue = headers.some(header => header.includes('valor bruto') || header === 'valor');
+    const hasAuthorization = headers.some(header => header.includes('codigo de autorizacao'));
+    return hasSaleDate && hasGrossValue && hasAuthorization;
+  });
 }
 
 function mapCieloRow(row, index) {
@@ -32,12 +55,13 @@ function mapCieloRow(row, index) {
     horaVenda: String(getValue(row, ['Hora da venda']) || '').trim(),
     dataPrevistaPagamento: String(getValue(row, ['Data prevista do pagamento']) || '').trim(),
     nsu: String(getValue(row, ['NSU/DOC', 'NSU']) || '').trim(),
+    numeroMaquina: String(getValue(row, ['Número da máquina', 'Numero da maquina', 'Número máquina', 'Numero maquina', 'Máquina', 'Maquina']) || '').trim(),
     raw: row,
   };
 }
 
 function getCieloInstallments(row) {
-  const candidates = ['Parcelas', 'Quantidade de parcelas', 'Qtd parcelas', 'Número de parcelas', 'Numero de parcelas', 'Plano'];
+  const candidates = ['Parcelas', 'Quantidade de parcelas', 'Quantidade total de parcelas', 'Qtd parcelas', 'Número de parcelas', 'Numero de parcelas', 'Plano'];
   for (const key of candidates) {
     const value = getValue(row, [key]);
     if (value) return String(value).trim();

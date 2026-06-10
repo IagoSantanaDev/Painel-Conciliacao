@@ -14,7 +14,7 @@ import { parseCsvRows, parseWorkbookRows } from './fileReaders.js';
 
 export async function parseBiMv(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  const rows = ['xlsx', 'xls'].includes(ext) ? await parseWorkbookRows(file) : await parseCsvRows(file);
+  const rows = ext === 'csv' ? await parseCsvRows(file) : await parseWorkbookRows(file);
   const headerIndex = findHeaderRow(rows);
   if (headerIndex < 0) throw new Error('Não foi possível identificar o cabeçalho da planilha BI.');
 

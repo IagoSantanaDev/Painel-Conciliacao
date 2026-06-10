@@ -11,6 +11,9 @@ if (window.pdfjsLib) {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.js', import.meta.url).toString();
 }
 
+const SPREADSHEET_EXTENSIONS = ['csv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods'];
+const HOSPITAL_EXTENSIONS = [...SPREADSHEET_EXTENSIONS, 'pdf'];
+
 const state = {
   hospitalRows: [],
   cieloRows: [],
@@ -28,8 +31,8 @@ el.clearBtn.addEventListener('click', limparArquivos);
 el.exportBtn.addEventListener('click', exportarTd);
 el.hospitalFile.addEventListener('change', () => renderUploadSummary(el));
 el.cieloFile.addEventListener('change', () => renderUploadSummary(el));
-setupDropZone(el.hospitalDropZone, el.hospitalFile, ['csv', 'xlsx', 'xls', 'pdf'], 'Use CSV, XLSX, XLS ou PDF no arquivo hospitalar.');
-setupDropZone(el.cieloDropZone, el.cieloFile, ['csv'], 'Use apenas CSV no arquivo Cielo.');
+setupDropZone(el.hospitalDropZone, el.hospitalFile, HOSPITAL_EXTENSIONS, 'Use CSV, XLSX, XLS, XLSM, XLSB, ODS ou PDF no arquivo hospitalar.');
+setupDropZone(el.cieloDropZone, el.cieloFile, SPREADSHEET_EXTENSIONS, 'Use CSV, XLSX, XLS, XLSM, XLSB ou ODS no arquivo Cielo.');
 el.tabelaBody.addEventListener('change', event => {
   const input = event.target.closest('input.edit');
   if (!input) return;
@@ -63,6 +66,7 @@ async function processar() {
     state.warnings = [...(hospitalResult.warnings || []), ...(cieloResult.warnings || [])];
     if (hospitalResult.ignoredRows) state.warnings.push(`${hospitalResult.ignoredRows} linha(s) ignorada(s) no BI/MV.`);
     if (hospitalResult.ignoredLines) state.warnings.push(`${hospitalResult.ignoredLines} linha(s) ignorada(s) no PDF Tasy.`);
+    if (cieloResult.ignoredRows) state.warnings.push(`${cieloResult.ignoredRows} linha(s) de preâmbulo ignorada(s) no relatório Cielo.`);
     state.lastSource = hospitalResult.source;
     state.parsedInfo = hospitalResult;
     state.currentFilter = 'todos';
