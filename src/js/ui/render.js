@@ -11,22 +11,43 @@ export function showAlert(el, type, message) {
 
 export function setLoading(el, state, loading) {
   el.processBtn.disabled = loading;
-  el.processIcon.innerHTML = loading ? '<span class="spinner" aria-hidden="true"></span>' : '✓';
+  el.processBtn.textContent = loading ? 'Processando...' : 'Processar conciliação';
   if (el.heroStatus) {
     el.heroStatus.textContent = loading ? 'Processando arquivos' : (state.dadosFinal.length ? 'Conciliação processada' : 'Aguardando arquivos');
   }
 }
 
 export function renderUploadSummary(el) {
-  const hospitalFile = el.hospitalFile.files[0];
-  const cieloFile = el.cieloFile.files[0];
-  const hospitalName = hospitalFile ? hospitalFile.name : 'Nenhum arquivo selecionado';
-  const cieloName = cieloFile ? cieloFile.name : 'Nenhum arquivo selecionado';
+  const hospitalFiles = Array.from(el.hospitalFile.files || []);
+  const cieloFiles = Array.from(el.cieloFile.files || []);
 
-  el.hospitalFileName.textContent = hospitalName;
-  el.cieloFileName.textContent = cieloName;
-  el.hospitalDropZone.classList.toggle('has-file', Boolean(hospitalFile));
-  el.cieloDropZone.classList.toggle('has-file', Boolean(cieloFile));
+  el.hospitalFileName.textContent = summarizeFiles(hospitalFiles);
+  el.cieloFileName.textContent = summarizeFiles(cieloFiles);
+  el.hospitalDropZone.classList.toggle('has-file', hospitalFiles.length > 0);
+  el.cieloDropZone.classList.toggle('has-file', cieloFiles.length > 0);
+}
+
+function summarizeFiles(files) {
+  if (!files.length) return 'Nenhum arquivo selecionado';
+
+  if (files.length === 1) {
+    const ext = files[0].name.split('.').pop().toLowerCase();
+    const label = ext === 'pdf' ? 'PDF' : 'Planilha';
+    return `${files[0].name} [${label}]`;
+  }
+
+  const counts = { pdf: 0, planilha: 0 };
+  files.forEach(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (ext === 'pdf') counts.pdf++;
+    else counts.planilha++;
+  });
+  const parts = [];
+  if (counts.planilha) parts.push(`${counts.planilha} planilha(s)`);
+  if (counts.pdf) parts.push(`${counts.pdf} PDF(s)`);
+  const firstNames = files.slice(0, 2).map(file => file.name).join(', ');
+  const remaining = files.length > 2 ? ` +${files.length - 2}` : '';
+  return `${files.length} arquivos (${parts.join(', ')}): ${firstNames}${remaining}`;
 }
 
 export function renderAll(el, state, onFilterChange) {
@@ -57,7 +78,7 @@ function computeMetrics(rows) {
     total: rows.length,
     conciliados: rows.filter(isOkRow).length,
     divergentes: rows.filter(row => row.statusLabel === 'Divergente').length,
-    semCielo: rows.filter(row => row.status.includes('Não encontrado na Cielo')).length,
+    naoEncontrado: rows.filter(row => row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')).length,
     dinheiro: rows.filter(row => row.valorDinheiro > 0).length,
     pendentes: rows.filter(row => row.statusLabel === 'Pendente').length,
     valorCartao: rows.reduce((sum, row) => sum + (row.valorCartao || 0), 0),
@@ -70,7 +91,7 @@ function renderMetrics(el, state) {
     ['Total registros', metrics.total, ''],
     ['Conciliados', metrics.conciliados, 'primary'],
     ['Divergentes', metrics.divergentes, ''],
-    ['Sem Cielo', metrics.semCielo, ''],
+    ['Não encontrado', metrics.naoEncontrado, ''],
     ['Dinheiro/Espécie', metrics.dinheiro, ''],
     ['Valor total cartão', formatMoney(metrics.valorCartao), 'primary'],
   ];
@@ -85,8 +106,7 @@ function renderFilters(el, state, onFilterChange) {
     ['todos', 'Todos'],
     ['conciliado', 'Conciliados'],
     ['divergente', 'Divergentes'],
-    ['semCielo', 'Sem Cielo'],
-    ['naoEncontradoSistema', 'Sem sistema'],
+    ['naoEncontrado', 'Não encontrado'],
     ['dinheiro', 'Dinheiro'],
     ['pendente', 'Pendentes'],
   ];
@@ -104,13 +124,15 @@ function rowMatchesFilter(row, filter) {
   switch (filter) {
     case 'conciliado': return isOkRow(row);
     case 'divergente': return row.statusLabel === 'Divergente';
-    case 'semCielo':
-    case 'naoEncontrado': return row.status.includes('Não encontrado na Cielo');
-    case 'naoEncontradoSistema': return row.status.includes('Não encontrado no sistema');
+    case 'naoEncontrado': return row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado');
     case 'dinheiro': return row.valorDinheiro > 0;
     case 'pendente': return row.statusLabel === 'Pendente';
     default: return true;
   }
+}
+
+function hasStatusContaining(row, text) {
+  return Array.isArray(row.status) && row.status.some(status => String(status).includes(text));
 }
 
 function renderTabela(el, state) {
