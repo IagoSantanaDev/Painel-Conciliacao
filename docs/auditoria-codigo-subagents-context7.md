@@ -87,7 +87,7 @@ Reprodução local:
 }
 ```
 
-Impacto: a linha aparece como **Sem Cielo**, mas internamente ainda possui `cielo`. A exportação pode usar `row.cielo` antigo para data banco, valor banco, parcela ou POS.
+Impacto: a linha aparece com badge **Não encontrado na Cielo** e status agrupado **Não encontrado**, mas internamente ainda possui `cielo`. A exportação pode usar `row.cielo` antigo para data banco, valor banco, parcela ou POS.
 
 Correção sugerida:
 
@@ -378,8 +378,8 @@ Sugestão mínima: criar `src/vendor/manifest.json` com nome, versão, arquivos,
 - `pdf.workerSrc` aponta para arquivo local.
 - Existe fallback de PDF sem worker.
 - `SheetJS.read(new Uint8Array(...))` está alinhado com a documentação do SheetJS.
-- Filtro **Sem Cielo** usa `Não encontrado na Cielo`.
-- Filtro **Sem sistema** usa `Não encontrado no sistema`.
+- Filtro **Não encontrado** agrupa badges que contenham `Não encontrado`, incluindo `Não encontrado na Cielo`.
+- Lógica antiga de venda Cielo sem registro hospitalar foi removida; não há mais badge/filtro para esse caso.
 - A exportação dedicada Tasy/Cielo separa layout especial.
 - O favicon foi movido para `src/assets`.
 

@@ -38,11 +38,11 @@
                 </svg></span>
               <span class="drop-copy">
                 <span class="drop-title">Arquivo hospitalar</span>
-                <span class="drop-subtitle">BI/MV em CSV/planilha ou PDF Tasy</span>
+                <span class="drop-subtitle">Um ou mais arquivos BI/MV em CSV/planilha ou PDF Tasy</span>
                 <span class="drop-file-name" id="hospitalFileName">Nenhum arquivo selecionado</span>
               </span>
             </label>
-            <input class="file-input sr-only" type="file" id="hospitalFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods,.pdf">
+            <input class="file-input sr-only" type="file" id="hospitalFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods,.pdf" multiple>
           </div>
 
           <div class="field upload-field">
@@ -53,16 +53,15 @@
                 </svg></span>
               <span class="drop-copy">
                 <span class="drop-title">Relatório Cielo</span>
-                <span class="drop-subtitle">CSV ou planilha de vendas da Cielo</span>
+                <span class="drop-subtitle">Um ou mais arquivos CSV ou planilha de vendas da Cielo</span>
                 <span class="drop-file-name" id="cieloFileName">Nenhum arquivo selecionado</span>
               </span>
             </label>
-            <input class="file-input sr-only" type="file" id="cieloFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods">
+            <input class="file-input sr-only" type="file" id="cieloFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods" multiple>
           </div>
 
           <div class="import-actions">
-            <button class="btn btn-primary" id="processBtn" type="button"><span id="processIcon">✓</span>Processar
-              conciliação</button>
+            <button class="btn btn-primary" id="processBtn" type="button">Processar conciliação</button>
             <button class="btn btn-secondary" id="clearBtn" type="button">Limpar arquivos</button>
             <button class="btn btn-export" id="exportBtn" type="button" disabled>Exportar TD (.xlsx)</button>
           </div>

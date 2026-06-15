@@ -7,7 +7,6 @@ export function getElements() {
     hospitalFileName: document.getElementById('hospitalFileName'),
     cieloFileName: document.getElementById('cieloFileName'),
     processBtn: document.getElementById('processBtn'),
-    processIcon: document.getElementById('processIcon'),
     clearBtn: document.getElementById('clearBtn'),
     exportBtn: document.getElementById('exportBtn'),
     alertHost: document.getElementById('alertHost'),
