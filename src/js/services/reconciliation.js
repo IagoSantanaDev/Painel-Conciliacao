@@ -1,12 +1,11 @@
+const GENERATED_OBSERVATION_PREFIXES = [
+  'Autorizador duplicado na Cielo',
+  'Parcelas não informadas',
+];
+
 export function reconcileRows(hospitalRows, cieloRows) {
   const cieloIndex = buildCieloIndex(cieloRows);
-  const reconciledRows = hospitalRows.map(row => reconcileOne(row, cieloIndex));
-  const matchedCieloIds = new Set(reconciledRows.map(row => row.cielo?.idInterno).filter(Boolean));
-  const unmatchedCieloRows = cieloRows
-    .filter(sale => !matchedCieloIds.has(sale.idInterno))
-    .map(sale => reconcileOne(createCieloOnlyRow(sale), cieloIndex));
-
-  return [...reconciledRows, ...unmatchedCieloRows];
+  return hospitalRows.map(row => reconcileOne(row, cieloIndex));
 }
 
 export function reconcileOne(row, cieloIndex) {
@@ -14,15 +13,12 @@ export function reconcileOne(row, cieloIndex) {
     ...row,
     status: [],
     statusLabel: '',
-    cielo: row.cielo || null,
-    valorCielo: row.valorCielo || 0,
-    diferenca: row.diferenca || 0,
-    observacoes: [...(row.observacoes || [])],
+    cielo: null,
+    valorCielo: 0,
+    diferenca: 0,
+    numeroMaquina: row.numeroMaquina || '',
+    observacoes: getBaseObservacoes(row.observacoes),
   };
-
-  if (result.origem === 'CIELO_SEM_SISTEMA') {
-    return reconcileCieloOnly(result);
-  }
 
   if (result.valorCartao <= 0 && result.valorDinheiro <= 0 && hasFinancialReference(result)) {
     result.status.push('Sem valor de pagamento');
@@ -45,6 +41,7 @@ export function reconcileOne(row, cieloIndex) {
         result.parcelas = result.parcelas || sale.parcelas || '';
         result.bandeira = result.bandeira || sale.bandeira || '';
         result.formaPagamento = result.formaPagamento || sale.formaPagamento || '';
+        result.numeroMaquina = result.numeroMaquina || sale.numeroMaquina || '';
 
         if (ambiguous) {
           result.status.push('Pendente revisão');
@@ -73,6 +70,7 @@ export function reconcileOne(row, cieloIndex) {
 
   if (!result.status.length) result.status.push('Conciliado');
   result.status = [...new Set(result.status)];
+  result.observacoes = [...new Set(result.observacoes.filter(Boolean))];
   result.statusLabel = getStatusLabel(result.status);
   return result;
 }
@@ -92,44 +90,12 @@ export function isOkRow(row) {
     && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
 }
 
-function createCieloOnlyRow(sale) {
-  return {
-    idInterno: `cielo-only-${sale.idInterno}`,
-    origem: 'CIELO_SEM_SISTEMA',
-    dataPagamento: sale.dataVenda || '',
-    horaPagamento: sale.horaVenda || '',
-    registro: '',
-    caixa: '',
-    lote: '',
-    contaFatura: '',
-    autorizador: sale.autorizador || '',
-    valorCartao: sale.valorBruto || 0,
-    valorDinheiro: 0,
-    valorFatura: 0,
-    desconto: '',
-    formaPagamento: sale.formaPagamento || '',
-    tipoCartao: sale.formaPagamento || '',
-    bandeira: sale.bandeira || '',
-    parcelas: sale.parcelas || '',
-    observacoes: ['Venda Cielo não encontrada no sistema'],
-    cielo: sale,
-    valorCielo: sale.valorBruto || 0,
-    diferenca: Number((0 - (sale.valorBruto || 0)).toFixed(2)),
-    raw: sale.raw,
-  };
+function getBaseObservacoes(observacoes = []) {
+  return [...new Set(observacoes.filter(obs => !isGeneratedObservation(obs)))];
 }
 
-function reconcileCieloOnly(result) {
-  const sale = result.cielo || null;
-  result.valorCielo = sale?.valorBruto || result.valorCielo || result.valorCartao || 0;
-  result.diferenca = Number((0 - result.valorCielo).toFixed(2));
-  result.status.push('Não encontrado no sistema');
-  if (!result.observacoes.includes('Venda Cielo não encontrada no sistema')) {
-    result.observacoes.push('Venda Cielo não encontrada no sistema');
-  }
-  result.status = [...new Set(result.status)];
-  result.statusLabel = getStatusLabel(result.status);
-  return result;
+function isGeneratedObservation(observacao) {
+  return GENERATED_OBSERVATION_PREFIXES.some(prefix => String(observacao || '').startsWith(prefix));
 }
 
 function hasFinancialReference(row) {
@@ -152,7 +118,7 @@ function pickCieloSale(hospitalRow, cieloIndex) {
 
 function getStatusLabel(status) {
   if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return 'Divergente';
-  if (status.includes('Não encontrado na Cielo') || status.includes('Não encontrado no sistema')) return 'Não encontrado';
+  if (status.includes('Não encontrado na Cielo') || status.includes('Não encontrado')) return 'Não encontrado';
   if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return 'Pendente';
   if (status.includes('Dinheiro OK')) return 'Dinheiro';
   if (status.includes('Pagamento misto')) return 'Pagamento misto';
