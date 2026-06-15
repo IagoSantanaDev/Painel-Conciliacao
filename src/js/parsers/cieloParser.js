@@ -12,6 +12,30 @@ import { parseCsvRows, parseWorkbookRows, rowsToObjects } from './fileReaders.js
 const CSV_EXTENSION = 'csv';
 const CIELO_SPREADSHEET_EXTENSIONS = new Set(['csv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 
+/** Deduplica vendas pelo autorizador + campos relevantes. Duplicatas verdadeiras (mesmo autorizador + mesmos valores) são removidas. */
+function deduplicateSales(sales) {
+  const seen = new Map();
+  const result = [];
+  for (const sale of sales) {
+    const key = [
+      sale.autorizador,
+      sale.valorBruto,
+      sale.bandeira,
+      sale.formaPagamento,
+      sale.parcelas,
+      sale.dataVenda,
+      sale.horaVenda,
+      sale.nsu,
+      sale.numeroMaquina,
+    ].join('|');
+    if (!seen.has(key)) {
+      seen.set(key, true);
+      result.push(sale);
+    }
+  }
+  return result;
+}
+
 export async function parseCielo(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (!CIELO_SPREADSHEET_EXTENSIONS.has(ext)) {
@@ -25,8 +49,9 @@ export async function parseCielo(file) {
   const objects = rowsToObjects(rows, headerIndex);
   const sales = objects.map((row, index) => mapCieloRow(row, index)).filter(Boolean);
   if (!sales.some(sale => sale.autorizador)) throw new Error('A planilha Cielo não possui coluna de autorização reconhecida.');
+  const deduplicated = deduplicateSales(sales);
 
-  return { rows: sales, warnings: [], ignoredRows: headerIndex, source: 'CIELO' };
+  return { rows: deduplicated, warnings: [], ignoredRows: headerIndex, source: 'CIELO' };
 }
 
 function findCieloHeaderRow(rows) {

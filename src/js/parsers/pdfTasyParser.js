@@ -7,6 +7,33 @@ import {
   parseMoneyBR,
 } from '../utils/format.js';
 
+/** Deduplica registros do PDF pelo autorizador + campos financeiros + bandeira/parcelas. */
+function deduplicatePdfRows(rows) {
+  const seen = new Map();
+  const result = [];
+  for (const row of rows) {
+    const key = [
+      row.autorizador,
+      row.valorCartao,
+      row.valorDinheiro,
+      row.valorFatura,
+      row.bandeira,
+      row.formaPagamento,
+      row.parcelas,
+      row.registro,
+      row.lote,
+      row.caixa,
+      row.dataPagamento,
+      row.horaPagamento,
+    ].join('|');
+    if (!seen.has(key)) {
+      seen.set(key, true);
+      result.push(row);
+    }
+  }
+  return result;
+}
+
 export async function parseTasyPdf(file) {
   if (!window.pdfjsLib) throw new Error('Biblioteca pdf.js não carregada.');
 
@@ -71,7 +98,8 @@ export async function parseTasyPdf(file) {
   }
 
   if (!rows.length) throw new Error('Nenhuma transação válida foi encontrada no PDF.');
-  return { rows, warnings, ignoredLines, pagesRead: pdf.numPages, source: 'PDF_TASY' };
+  const deduplicated = deduplicatePdfRows(rows);
+  return { rows: deduplicated, warnings, ignoredLines, pagesRead: pdf.numPages, source: 'PDF_TASY' };
 }
 
 async function loadPdfDocument(data) {

@@ -12,6 +12,31 @@ import {
 } from '../utils/format.js';
 import { parseCsvRows, parseWorkbookRows } from './fileReaders.js';
 
+/** Deduplica registros hospitalares pelo autorizador + campos financeiros + bandeira/parcelas. */
+function deduplicateHospitalRows(rows) {
+  const seen = new Map();
+  const result = [];
+  for (const row of rows) {
+    const key = [
+      row.autorizador,
+      row.valorCartao,
+      row.valorDinheiro,
+      row.valorFatura,
+      row.bandeira,
+      row.formaPagamento,
+      row.parcelas,
+      row.registro,
+      row.lote,
+      row.caixa,
+    ].join('|');
+    if (!seen.has(key)) {
+      seen.set(key, true);
+      result.push(row);
+    }
+  }
+  return result;
+}
+
 export async function parseBiMv(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   const rows = ext === 'csv' ? await parseCsvRows(file) : await parseWorkbookRows(file);
@@ -30,7 +55,9 @@ export async function parseBiMv(file) {
     hospitalRows.push(payment);
   });
 
-  return { rows: hospitalRows, warnings, ignoredRows, source: 'BI_MV' };
+  const deduplicated = deduplicateHospitalRows(hospitalRows);
+
+  return { rows: deduplicated, warnings, ignoredRows, source: 'BI_MV' };
 }
 
 function findHeaderRow(rows) {
