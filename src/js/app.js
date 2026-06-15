@@ -1,7 +1,7 @@
 import { parseBiMv } from './parsers/biMvParser.js';
 import { parseCielo } from './parsers/cieloParser.js';
 import { parseTasyPdf } from './parsers/pdfTasyParser.js';
-import { buildCieloIndex, isOkRow, reconcileOne, reconcileRows } from './services/reconciliation.js';
+import { buildCieloIndex, deduplicateCieloCrossFile, isOkRow, reconcileOne, reconcileRows } from './services/reconciliation.js';
 import { exportTd } from './services/exportTd.js';
 import { normalizeAuth, parseMoneyBRStrict } from './utils/format.js';
 import { getElements } from './ui/dom.js';
@@ -86,7 +86,7 @@ async function processar() {
     ]);
 
     state.hospitalRows = deduplicateCrossSource(hospitalResult.rows);
-    state.cieloRows = cieloResult.rows;
+    state.cieloRows = deduplicateCieloCrossFile(cieloResult.rows);
     state.dadosFinal = reconcileRows(state.hospitalRows, state.cieloRows);
     state.warnings = [...(hospitalResult.warnings || []), ...(cieloResult.warnings || [])];
     if (hospitalResult.ignoredRows) state.warnings.push(`${hospitalResult.ignoredRows} linha(s) ignorada(s) no BI/MV.`);

@@ -85,6 +85,32 @@ export function buildCieloIndex(cieloRows) {
   return map;
 }
 
+/** Deduplica vendas da Cielo entre múltiplos arquivos pela chave canônica.
+ *  Se o mesmo autorizador aparece em arquivos diferentes com valores diferentes,
+ *  mantém todos para que a conciliação encontre matches exatos. */
+export function deduplicateCieloCrossFile(cieloRows) {
+  const seen = new Map();
+  const result = [];
+  for (const sale of cieloRows) {
+    const key = [
+      sale.autorizador,
+      sale.valorBruto,
+      sale.bandeira,
+      sale.formaPagamento,
+      sale.parcelas,
+      sale.dataVenda,
+      sale.horaVenda,
+      sale.nsu,
+      sale.numeroMaquina,
+    ].join('|');
+    if (!seen.has(key)) {
+      seen.set(key, true);
+      result.push(sale);
+    }
+  }
+  return result;
+}
+
 export function isOkRow(row) {
   return ['Conciliado', 'Dinheiro', 'Pagamento misto'].includes(row.statusLabel)
     && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
