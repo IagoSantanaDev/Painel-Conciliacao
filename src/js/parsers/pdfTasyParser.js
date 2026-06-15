@@ -20,7 +20,6 @@ function deduplicatePdfRows(rows) {
       row.bandeira,
       row.formaPagamento,
       row.parcelas,
-      row.registro,
       row.lote,
       row.caixa,
       row.dataPagamento,

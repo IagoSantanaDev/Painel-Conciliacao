@@ -25,7 +25,6 @@ function deduplicateHospitalRows(rows) {
       row.bandeira,
       row.formaPagamento,
       row.parcelas,
-      row.registro,
       row.lote,
       row.caixa,
     ].join('|');
