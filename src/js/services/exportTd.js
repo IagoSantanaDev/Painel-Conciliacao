@@ -70,7 +70,7 @@ function buildSheetGroups(dadosFinal) {
     { name: 'Divergentes', rows: dadosFinal.filter(row => row.statusLabel === 'Divergente') },
     { name: 'Não encontrado', rows: dadosFinal.filter(row => row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')) },
     { name: 'Pendentes', rows: dadosFinal.filter(row => row.statusLabel === 'Pendente') },
-    { name: 'Dinheiro', rows: dadosFinal.filter(row => row.valorDinheiro > 0) },
+    { name: 'Dinheiro', rows: dadosFinal.filter(row => row.valorDinheiro > 0 && row.valorCartao === 0) },
   ];
 }
 
