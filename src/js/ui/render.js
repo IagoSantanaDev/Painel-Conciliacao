@@ -149,7 +149,7 @@ function renderTabela(el, state) {
 }
 
 function renderTableRow(row, index) {
-  const rowClass = row.statusLabel === 'Divergente' || row.statusLabel === 'Não encontrado'
+  const rowClass = row.statusLabel === 'Divergente' || row.statusLabel === 'Não encontrado' || row._cieloOnly
     ? 'row-error'
     : row.statusLabel === 'Pendente' ? 'row-alert' : '';
 
@@ -162,6 +162,7 @@ function renderTableRow(row, index) {
     <td>${cell(row, index, 'valorDinheiro', 'money')}</td>
     <td>${cell(row, index, 'valorFatura', 'money')}</td>
     <td>${cell(row, index, 'desconto')}</td>
+    <td>${cell(row, index, 'formaPagamento')}</td>
     <td><div class="badges">${renderStatusBadges(row.status)}</div></td>
   </tr>`;
 }

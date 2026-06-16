@@ -5,7 +5,45 @@ const GENERATED_OBSERVATION_PREFIXES = [
 
 export function reconcileRows(hospitalRows, cieloRows) {
   const cieloIndex = buildCieloIndex(cieloRows);
-  return hospitalRows.map(row => reconcileOne(row, cieloIndex));
+  const matchedCieloIds = new Set();
+
+  const hospitalResults = hospitalRows.map(row => {
+    const result = reconcileOne(row, cieloIndex);
+    if (result.cielo?.idInterno) {
+      matchedCieloIds.add(result.cielo.idInterno);
+    }
+    return result;
+  });
+
+  const cieloOnlyRows = cieloRows
+    .filter(sale => !matchedCieloIds.has(sale.idInterno))
+    .map(sale => ({
+      idInterno: sale.idInterno,
+      registro: '—',
+      caixa: '—',
+      lote: '—',
+      autorizador: sale.autorizador || '—',
+      valorCartao: 0,
+      valorDinheiro: 0,
+      valorFatura: 0,
+      desconto: 0,
+      bandeira: sale.bandeira || '',
+      formaPagamento: sale.formaPagamento || '',
+      parcelas: sale.parcelas || '',
+      numeroMaquina: sale.numeroMaquina || '',
+      status: ['Não encontrado no sistema'],
+      statusLabel: 'Cielo sem correspondência',
+      cielo: sale,
+      valorCielo: sale.valorBruto || 0,
+      diferenca: 0,
+      observacoes: [],
+      _cieloOnly: true,
+      dataVenda: sale.dataVenda || '',
+      horaVenda: sale.horaVenda || '',
+      nsu: sale.nsu || '',
+    }));
+
+  return [...hospitalResults, ...cieloOnlyRows];
 }
 
 export function reconcileOne(row, cieloIndex) {
