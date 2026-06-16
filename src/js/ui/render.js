@@ -82,6 +82,8 @@ function computeMetrics(rows) {
     dinheiro: rows.filter(row => row.valorDinheiro > 0).length,
     pendentes: rows.filter(row => row.statusLabel === 'Pendente').length,
     valorCartao: rows.reduce((sum, row) => sum + (row.valorCartao || 0), 0),
+    valorDinheiro: rows.reduce((sum, row) => sum + (row.valorDinheiro || 0), 0),
+    valorTotal: rows.reduce((sum, row) => sum + (row.valorCartao || 0) + (row.valorDinheiro || 0), 0),
   };
 }
 
@@ -94,6 +96,8 @@ function renderMetrics(el, state) {
     ['Não encontrado', metrics.naoEncontrado, ''],
     ['Dinheiro/Espécie', metrics.dinheiro, ''],
     ['Valor total cartão', formatMoney(metrics.valorCartao), 'primary'],
+    ['Valor total dinheiro', formatMoney(metrics.valorDinheiro), ''],
+    ['Valor total', formatMoney(metrics.valorTotal), 'primary'],
   ];
 
   el.metricsGrid.innerHTML = cards

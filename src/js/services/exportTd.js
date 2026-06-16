@@ -106,11 +106,6 @@ function buildTdRows(dadosFinal) {
   const dadosTD = [];
 
   dadosFinal.forEach(row => {
-    const observacaoBase = [...(row.observacoes || [])];
-    if (row.desconto && String(row.desconto) !== '0' && !isOkRow(row)) {
-      observacaoBase.push(`Desconto identificado: ${row.desconto}`);
-    }
-    const observacao = [...new Set(observacaoBase)].join(' | ');
     const numeroMaquinaPos = row.numeroMaquina || row.cielo?.numeroMaquina || '';
 
     if (row.valorCartao > 0) {
@@ -125,7 +120,7 @@ function buildTdRows(dadosFinal) {
         formaPagamento: row.formaPagamento || '',
         parcela: row.parcelas || '',
         contaCredito: '',
-        observacao,
+        observacao: '',
         autorizador: row.autorizador || '',
         numeroMaquinaPos,
       }));
@@ -143,7 +138,7 @@ function buildTdRows(dadosFinal) {
         formaPagamento: 'ESPÉCIE',
         parcela: '',
         contaCredito: '',
-        observacao,
+        observacao: '',
         autorizador: '',
         numeroMaquinaPos: '',
       }));
@@ -158,7 +153,6 @@ function buildTasyCieloRows(dadosFinal) {
 
   dadosFinal.forEach(row => {
     const numeroMaquinaPos = row.numeroMaquina || row.cielo?.numeroMaquina || '';
-    const observacao = [...new Set(row.observacoes || [])].join(' | ');
 
     if (row.valorCartao > 0 || row.valorCielo > 0) {
       dadosTD.push(createTasyCieloRow({
@@ -172,7 +166,7 @@ function buildTasyCieloRows(dadosFinal) {
         formaPagamento: row.formaPagamento || row.cielo?.formaPagamento || '',
         parcela: row.parcelas || row.cielo?.parcelas || '',
         contaCredito: '',
-        observacao,
+        observacao: '',
         codigoAutorizador: row.autorizador || row.cielo?.autorizador || '',
         numeroMaquinaPos,
       }));
@@ -181,7 +175,7 @@ function buildTasyCieloRows(dadosFinal) {
     if (row.valorDinheiro > 0) {
       dadosTD.push(createTasyCieloRow({
         dataRps: row.dataPagamento || '',
-        dataBanco: '',
+        dataBanco: row.dataPagamento || '',
         atendRegistro: row.registro || '',
         contaFatura: row.contaFatura || '',
         valorFatura: row.valorFatura || 0,
@@ -190,7 +184,7 @@ function buildTasyCieloRows(dadosFinal) {
         formaPagamento: 'ESPÉCIE',
         parcela: '',
         contaCredito: '',
-        observacao,
+        observacao: '',
         codigoAutorizador: '',
         numeroMaquinaPos: '',
       }));
