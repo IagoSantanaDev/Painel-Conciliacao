@@ -120,7 +120,7 @@ function buildTdRows(dadosFinal) {
         formaPagamento: row.formaPagamento || '',
         parcela: row.parcelas || '',
         contaCredito: '',
-        observacao: '',
+        observacao: row.desconto || '',
         autorizador: row.autorizador || '',
         numeroMaquinaPos,
       }));
@@ -138,7 +138,7 @@ function buildTdRows(dadosFinal) {
         formaPagamento: 'ESPÉCIE',
         parcela: '',
         contaCredito: '',
-        observacao: '',
+        observacao: row.desconto || '',
         autorizador: '',
         numeroMaquinaPos: '',
       }));
@@ -166,7 +166,7 @@ function buildTasyCieloRows(dadosFinal) {
         formaPagamento: row.formaPagamento || row.cielo?.formaPagamento || '',
         parcela: row.parcelas || row.cielo?.parcelas || '',
         contaCredito: '',
-        observacao: '',
+        observacao: row.desconto || '',
         codigoAutorizador: row.autorizador || row.cielo?.autorizador || '',
         numeroMaquinaPos,
       }));
@@ -184,7 +184,7 @@ function buildTasyCieloRows(dadosFinal) {
         formaPagamento: 'ESPÉCIE',
         parcela: '',
         contaCredito: '',
-        observacao: '',
+        observacao: row.desconto || '',
         codigoAutorizador: '',
         numeroMaquinaPos: '',
       }));
