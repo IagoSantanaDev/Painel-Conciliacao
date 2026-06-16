@@ -1,6 +1,5 @@
 const GENERATED_OBSERVATION_PREFIXES = [
-  'Autorizador duplicado na Cielo',
-  'Parcelas não informadas',
+  'Desconto:',
 ];
 
 export function reconcileRows(hospitalRows, cieloRows) {
@@ -66,10 +65,9 @@ export function reconcileOne(row, cieloIndex) {
     if (!result.autorizador) {
       result.status.push('Sem autorizador');
     } else {
-      const { sale, ambiguous, candidates } = pickCieloSale(result, cieloIndex);
+      const { sale, ambiguous } = pickCieloSale(result, cieloIndex);
       if (ambiguous && !sale) {
         result.status.push('Pendente revisão');
-        result.observacoes.push(`Autorizador duplicado na Cielo com ${candidates.length} venda(s) candidata(s); selecione a venda correta antes de exportar.`);
       } else if (!sale) {
         result.status.push('Não encontrado na Cielo');
       } else {
@@ -81,19 +79,15 @@ export function reconcileOne(row, cieloIndex) {
         result.formaPagamento = result.formaPagamento || sale.formaPagamento || '';
         result.numeroMaquina = result.numeroMaquina || sale.numeroMaquina || '';
 
-        if (ambiguous) {
-          result.status.push('Pendente revisão');
-          result.observacoes.push('Autorizador duplicado na Cielo; revisar venda usada para conciliação.');
-        }
-
+        if (ambiguous) result.status.push('Pendente revisão');
         if (Math.abs(result.diferenca) > 0.01) result.status.push('Divergência valor cartão');
         else result.status.push('Conciliado');
-        if (!result.parcelas) result.observacoes.push('Parcelas não informadas');
       }
     }
   }
 
   if (result.valorDinheiro > 0) {
+    if (result.valorCartao <= 0) result.formaPagamento = 'ESPÉCIE';
     if (result.valorCartao > 0) {
       result.status.push('Pagamento misto');
       if (result.valorFatura > 0 && Math.abs((result.valorCartao + result.valorDinheiro) - result.valorFatura) > 0.01) {
@@ -108,6 +102,7 @@ export function reconcileOne(row, cieloIndex) {
 
   if (!result.status.length) result.status.push('Conciliado');
   result.status = [...new Set(result.status)];
+  if (result.desconto) result.observacoes.push(`Desconto: ${result.desconto}`);
   result.observacoes = [...new Set(result.observacoes.filter(Boolean))];
   result.statusLabel = getStatusLabel(result.status);
   return result;
