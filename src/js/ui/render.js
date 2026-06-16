@@ -164,6 +164,7 @@ function renderTableRow(row, index) {
     <td>${cell(row, index, 'desconto')}</td>
     <td>${cell(row, index, 'formaPagamento')}</td>
     <td><div class="badges">${renderStatusBadges(row.status)}</div></td>
+    <td>${escapeHtml((row.observacoes || []).join(' ')) || '—'}</td>
   </tr>`;
 }
 
