@@ -1,7 +1,3 @@
-const GENERATED_OBSERVATION_PREFIXES = [
-  'Desconto:',
-];
-
 export function reconcileRows(hospitalRows, cieloRows) {
   const cieloIndex = buildCieloIndex(cieloRows);
   const matchedCieloIds = new Set();
@@ -54,7 +50,7 @@ export function reconcileOne(row, cieloIndex) {
     valorCielo: 0,
     diferenca: 0,
     numeroMaquina: row.numeroMaquina || '',
-    observacoes: getBaseObservacoes(row.observacoes),
+    observacoes: row.observacoes ? [...row.observacoes] : [],
   };
 
   if (result.valorCartao <= 0 && result.valorDinheiro <= 0 && hasFinancialReference(result)) {
@@ -102,7 +98,7 @@ export function reconcileOne(row, cieloIndex) {
 
   if (!result.status.length) result.status.push('Conciliado');
   result.status = [...new Set(result.status)];
-  if (result.desconto) result.observacoes.push(`Desconto: ${result.desconto}`);
+  if (result.desconto) result.observacoes.push(result.desconto);
   result.observacoes = [...new Set(result.observacoes.filter(Boolean))];
   result.statusLabel = getStatusLabel(result.status);
   return result;
@@ -147,14 +143,6 @@ export function deduplicateCieloCrossFile(cieloRows) {
 export function isOkRow(row) {
   return ['Conciliado', 'Dinheiro', 'Pagamento misto'].includes(row.statusLabel)
     && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
-}
-
-function getBaseObservacoes(observacoes = []) {
-  return [...new Set(observacoes.filter(obs => !isGeneratedObservation(obs)))];
-}
-
-function isGeneratedObservation(observacao) {
-  return GENERATED_OBSERVATION_PREFIXES.some(prefix => String(observacao || '').startsWith(prefix));
 }
 
 function hasFinancialReference(row) {
