@@ -82,6 +82,11 @@
           </div>
           <div class="card-body">
             <div class="toolbar hidden" id="toolbar">
+              <div class="table-controls" aria-label="Pesquisa da tabela">
+                <label class="control-field search-field">
+                  <input id="tableSearch" type="search" aria-label="Pesquisar por registro, caixa, lote, autorizador ou data" placeholder="Registro, caixa, lote, autorizador ou data">
+                </label>
+              </div>
               <div class="filters" id="filters" aria-label="Filtros de status"></div>
               <span class="muted" id="resultCount">0 registros</span>
             </div>
@@ -93,6 +98,7 @@
               <table id="tabela">
                 <thead>
                   <tr>
+                    <th class="th-conciliado" aria-label="Marcar como corrigido"></th>
                     <th>Número Registro</th>
                     <th>Caixa</th>
                     <th>Lote</th>

@@ -13,6 +13,7 @@ export function getElements() {
     metricsGrid: document.getElementById('metricsGrid'),
     toolbar: document.getElementById('toolbar'),
     filters: document.getElementById('filters'),
+    tableSearch: document.getElementById('tableSearch'),
     resultCount: document.getElementById('resultCount'),
     emptyState: document.getElementById('emptyState'),
     tableWrap: document.getElementById('tableWrap'),

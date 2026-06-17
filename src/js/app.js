@@ -45,6 +45,7 @@ const state = {
   dadosFinal: [],
   warnings: [],
   currentFilter: 'todos',
+  searchQuery: '',
   lastSource: '',
   parsedInfo: null,
 };
@@ -54,11 +55,20 @@ const el = getElements();
 el.processBtn.addEventListener('click', processar);
 el.clearBtn.addEventListener('click', limparArquivos);
 el.exportBtn.addEventListener('click', exportarTd);
+el.tableSearch?.addEventListener('input', handleSearchChange);
+el.tableSearch?.addEventListener('search', handleSearchChange);
+el.tableSearch?.addEventListener('change', handleSearchChange);
+el.tableSearch?.addEventListener('keyup', handleSearchKeyup);
 el.hospitalFile.addEventListener('change', () => renderUploadSummary(el));
 el.cieloFile.addEventListener('change', () => renderUploadSummary(el));
 setupDropZone(el.hospitalDropZone, el.hospitalFile, HOSPITAL_EXTENSIONS, 'Use CSV, XLSX, XLS, XLSM, XLSB, ODS ou PDF no arquivo hospitalar.');
 setupDropZone(el.cieloDropZone, el.cieloFile, SPREADSHEET_EXTENSIONS, 'Use CSV, XLSX, XLS, XLSM, XLSB ou ODS no arquivo Cielo.');
 el.tabelaBody.addEventListener('change', event => {
+  const checkbox = event.target.closest('input.conciliar-big');
+  if (checkbox) {
+    toggleCorrigido(Number(checkbox.dataset.index), checkbox.checked);
+    return;
+  }
   const input = event.target.closest('input.edit');
   if (!input) return;
   atualizar(Number(input.dataset.index), input.dataset.field, input.value);
@@ -97,7 +107,7 @@ async function processar() {
     state.currentFilter = 'todos';
 
     renderAll(el, state, handleFilterChange);
-    const pendingRows = state.dadosFinal.filter(row => !isOkRow(row)).length;
+    const pendingRows = state.dadosFinal.filter(row => row.corrigido !== true && !isOkRow(row)).length;
     const exportMessage = pendingRows > 0
       ? `${pendingRows} linha(s) com pendência para revisão. Exportação TD liberada.`
       : 'Exportação TD liberada.';
@@ -139,7 +149,9 @@ function mergeParseResults(results, defaults) {
 }
 
 function atualizar(index, campo, valor) {
-  const row = { ...state.dadosFinal[index] };
+  const previous = state.dadosFinal[index];
+  if (!previous) return;
+  const row = { ...previous, corrigido: previous.corrigido === true };
   if (['valorCartao', 'valorDinheiro', 'valorFatura'].includes(campo)) {
     const parsed = parseMoneyBRStrict(valor);
     if (!parsed.valid) {
@@ -155,6 +167,14 @@ function atualizar(index, campo, valor) {
   renderAll(el, state, handleFilterChange);
 }
 
+function toggleCorrigido(index, checked) {
+  const row = state.dadosFinal[index];
+  if (!row) return;
+  row.corrigido = checked === true;
+  state.dadosFinal[index] = reconcileOne({ ...row }, buildCieloIndex(state.cieloRows));
+  renderAll(el, state, handleFilterChange);
+}
+
 function limparArquivos() {
   el.hospitalFile.value = '';
   el.cieloFile.value = '';
@@ -165,6 +185,8 @@ function limparArquivos() {
   state.lastSource = '';
   state.parsedInfo = null;
   state.currentFilter = 'todos';
+  state.searchQuery = '';
+  if (el.tableSearch) el.tableSearch.value = '';
 
   showAlert(el, '', '');
   renderAll(el, state, handleFilterChange);
@@ -211,7 +233,6 @@ function setupDropZone(dropZone, input, acceptedExtensions, invalidMessage) {
 
 function exportarTd() {
   try {
-    state.dadosFinal = reconcileRows(state.dadosFinal, state.cieloRows);
     renderAll(el, state, handleFilterChange);
 
     const result = exportTd(state.dadosFinal, { source: state.lastSource });
@@ -237,5 +258,29 @@ function validateRuntimeDependencies() {
 
 function handleFilterChange(filter) {
   state.currentFilter = filter;
+  state.searchQuery = '';
+  if (el.tableSearch) el.tableSearch.value = '';
   renderAll(el, state, handleFilterChange);
+  focusFilterButton(filter);
+}
+
+function handleSearchChange(event) {
+  applySearchValue(event.target.value);
+}
+
+function handleSearchKeyup(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  applySearchValue(event.target.value);
+}
+
+function applySearchValue(value) {
+  state.searchQuery = String(value || '').trim();
+  if (!state.searchQuery) state.currentFilter = 'todos';
+  renderAll(el, state, handleFilterChange);
+  if (!state.searchQuery) focusFilterButton('todos');
+}
+
+function focusFilterButton(filter) {
+  el.filters.querySelector(`[data-filter="${filter}"]`)?.focus();
 }
