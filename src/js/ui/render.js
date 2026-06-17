@@ -179,9 +179,6 @@ function rowMatchesSearch(row, query) {
     row.lote,
     row.autorizador,
     row.dataPagamento,
-    row.dataVenda,
-    row.cielo?.dataVenda,
-    row.cielo?.dataPrevistaPagamento,
   ].filter(Boolean).join(' '));
   return haystack.includes(normalizedQuery);
 }
