@@ -151,9 +151,13 @@ function rowMatchesFilter(row, filter) {
     case 'dinheiro': return row.corrigido !== true && (row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar'));
     case 'pendente': return row.corrigido !== true && row.statusLabel === 'Pendente';
     case 'corrigido': return row.corrigido === true;
-    case 'todos': return row.statusLabel !== 'Não encontrado' && !hasStatusContaining(row, 'Não encontrado');
-    default: return row.statusLabel !== 'Não encontrado' && !hasStatusContaining(row, 'Não encontrado');
+    case 'todos': return !isCieloOnlyRow(row);
+    default: return !isCieloOnlyRow(row);
   }
+}
+
+function isCieloOnlyRow(row) {
+  return row._cieloOnly === true || row.status?.some(status => status === 'Não encontrado no sistema');
 }
 
 function isCardPayment(row) {

@@ -192,7 +192,7 @@ function extractTasyRowsFromLine(line, pageNumber, operador, documentInfo = { ti
 
   if (/CX\s*-\s*Recebimento\s+Especie/i.test(line)) {
     const amount = extractReceiptAmount(line, /CX\s*-\s*Recebimento\s+Especie/i);
-    if (amount) rows.push(createPdfCashRow({ pageNumber, operador, line, dateMatch, amount }));
+    if (amount) rows.push(createPdfCashRow({ pageNumber, operador, line, dateMatch, amount, documentInfo }));
   }
 
   return rows;
@@ -231,17 +231,17 @@ function createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, au
   };
 }
 
-function createPdfCashRow({ pageNumber, operador, line, dateMatch, amount }) {
+function createPdfCashRow({ pageNumber, operador, line, dateMatch, amount, documentInfo = { titulo: '', notaFiscal: '' } }) {
   const valor = parseMoneyBR(amount);
   return {
     idInterno: createId('pdf-dinheiro', `${pageNumber}-${dateMatch[2]}`),
     origem: 'PDF_TASY',
     dataPagamento: dateMatch[1],
     horaPagamento: dateMatch[2],
-    registro: '',
+    registro: documentInfo.titulo || '',
     caixa: operador,
     lote: '',
-    contaFatura: '',
+    contaFatura: documentInfo.notaFiscal || '',
     autorizador: '',
     valorCartao: 0,
     valorDinheiro: valor,
@@ -252,7 +252,7 @@ function createPdfCashRow({ pageNumber, operador, line, dateMatch, amount }) {
     bandeira: '',
     parcelas: '',
     observacoes: ['Recebimento em espécie extraído do PDF Tasy'],
-    raw: { pageNumber, line },
+    raw: { pageNumber, line, documentInfo },
   };
 }
 
