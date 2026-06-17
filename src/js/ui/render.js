@@ -80,9 +80,9 @@ function computeMetrics(rows) {
     conciliados: rows.filter(isOkRow).length,
     divergentes: rows.filter(row => row.corrigido !== true && row.statusLabel === 'Divergente').length,
     naoEncontrado: rows.filter(row => row.corrigido !== true && (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado'))).length,
-    dinheiro: rows.filter(row => row.corrigido !== true && (row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar'))).length,
+    dinheiro: rows.filter(isCashPayment).length,
     pendentes: rows.filter(row => row.corrigido !== true && row.statusLabel === 'Pendente').length,
-    cartao: rows.filter(row => isOkRow(row) && (row.valorCartao > 0 || row._cieloOnly)).length,
+    cartao: rows.filter(isCardPayment).length,
     valorCartao: rows.reduce((sum, row) => sum + (row.valorCartao || 0), 0),
     valorDinheiro: rows.reduce((sum, row) => sum + (row.valorDinheiro || 0), 0),
     valorTotal: rows.reduce((sum, row) => sum + (row.valorCartao || 0) + (row.valorDinheiro || 0), 0),
@@ -148,7 +148,7 @@ function rowMatchesFilter(row, filter) {
     case 'cartao': return isCardPayment(row);
     case 'credito': return isCardType(row, 'credito');
     case 'debito': return isCardType(row, 'debito');
-    case 'dinheiro': return row.corrigido !== true && (row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar'));
+    case 'dinheiro': return isCashPayment(row);
     case 'pendente': return row.corrigido !== true && row.statusLabel === 'Pendente';
     case 'corrigido': return row.corrigido === true;
     case 'todos': return !isCieloOnlyRow(row);
@@ -162,6 +162,10 @@ function isCieloOnlyRow(row) {
 
 function isCardPayment(row) {
   return row.valorCartao > 0 || row._cieloOnly === true || isCardType(row, 'credito') || isCardType(row, 'debito');
+}
+
+function isCashPayment(row) {
+  return row.valorDinheiro > 0 || row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar');
 }
 
 function isCardType(row, type) {
