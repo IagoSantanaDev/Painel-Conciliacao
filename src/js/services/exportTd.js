@@ -65,12 +65,13 @@ export function exportTd(dadosFinal, options = {}) {
 }
 
 function buildSheetGroups(dadosFinal) {
+  const isCorrigido = row => row.corrigido === true;
   return [
     { name: 'Conciliados', rows: dadosFinal.filter(isOkRow) },
-    { name: 'Divergentes', rows: dadosFinal.filter(row => row.statusLabel === 'Divergente') },
-    { name: 'Não encontrado', rows: dadosFinal.filter(row => row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')) },
-    { name: 'Pendentes', rows: dadosFinal.filter(row => row.statusLabel === 'Pendente') },
-    { name: 'Dinheiro', rows: dadosFinal.filter(row => row.valorDinheiro > 0 && row.valorCartao === 0) },
+    { name: 'Divergentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Divergente') },
+    { name: 'Não encontrado', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado'))) },
+    { name: 'Pendentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Pendente') },
+    { name: 'À Conciliar', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorDinheiro > 0 || hasStatusContaining(row, 'À Conciliar'))) },
   ];
 }
 
@@ -111,7 +112,7 @@ function buildTdRows(dadosFinal) {
     if (row.valorCartao > 0) {
       dadosTD.push(createTdRow({
         dataPagRps: row.dataPagamento || row.cielo?.dataVenda || '',
-        dataBanco: row.cielo?.dataPrevistaPagamento || row.dataPagamento || row.cielo?.dataVenda || '',
+        dataBanco: '',
         atenRegistro: row.registro || '',
         contaFatura: row.contaFatura || '',
         valorFatura: row.valorFatura || 0,
@@ -129,7 +130,7 @@ function buildTdRows(dadosFinal) {
     if (row.valorDinheiro > 0) {
       dadosTD.push(createTdRow({
         dataPagRps: row.dataPagamento || '',
-        dataBanco: row.dataPagamento || '',
+        dataBanco: '',
         atenRegistro: row.registro || '',
         contaFatura: row.contaFatura || '',
         valorFatura: row.valorFatura || 0,
@@ -157,7 +158,7 @@ function buildTasyCieloRows(dadosFinal) {
     if (row.valorCartao > 0 || row.valorCielo > 0) {
       dadosTD.push(createTasyCieloRow({
         dataRps: row.dataPagamento || row.cielo?.dataVenda || '',
-        dataBanco: row.cielo?.dataPrevistaPagamento || '',
+        dataBanco: '',
         atendRegistro: row.registro || '',
         contaFatura: row.contaFatura || '',
         valorFatura: row.valorFatura || 0,
@@ -175,7 +176,7 @@ function buildTasyCieloRows(dadosFinal) {
     if (row.valorDinheiro > 0) {
       dadosTD.push(createTasyCieloRow({
         dataRps: row.dataPagamento || '',
-        dataBanco: row.dataPagamento || '',
+        dataBanco: '',
         atendRegistro: row.registro || '',
         contaFatura: row.contaFatura || '',
         valorFatura: row.valorFatura || 0,

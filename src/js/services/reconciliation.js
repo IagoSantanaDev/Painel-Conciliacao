@@ -36,6 +36,7 @@ export function reconcileRows(hospitalRows, cieloRows) {
       dataVenda: sale.dataVenda || '',
       horaVenda: sale.horaVenda || '',
       nsu: sale.nsu || '',
+      corrigido: false,
     }));
 
   return [...hospitalResults, ...cieloOnlyRows];
@@ -92,7 +93,7 @@ export function reconcileOne(row, cieloIndex) {
     } else if (Math.abs(result.valorDinheiro - result.valorFatura) > 0.01) {
       result.status.push('Dinheiro Diferença');
     } else {
-      result.status.push('Dinheiro OK');
+      result.status.push('Dinheiro');
     }
   }
 
@@ -100,6 +101,25 @@ export function reconcileOne(row, cieloIndex) {
   result.status = [...new Set(result.status)];
   if (result.desconto) result.observacoes.push(result.desconto);
   result.observacoes = [...new Set(result.observacoes.filter(Boolean))];
+
+  if (row.corrigido === true) {
+    const filtered = result.status.filter(s =>
+      !s.includes('Divergência') && !s.includes('Diferença')
+      && !s.includes('Não encontrado') && !s.includes('Pendente')
+      && !s.includes('Sem autorizador') && !s.includes('Sem valor')
+      && s !== 'À Conciliar'
+    );
+    result.status = filtered.length ? [...filtered, 'Corrigido'] : ['Corrigido'];
+  } else if (result.valorDinheiro > 0) {
+    const hasDivergence = result.status.some(s =>
+      s.includes('Divergência') || s.includes('Diferença')
+      || s.includes('Não encontrado') || s.includes('Pendente')
+      || s.includes('Sem autorizador') || s.includes('Sem valor')
+    );
+    if (!hasDivergence) result.status.push('À Conciliar');
+  }
+
+  result.status = [...new Set(result.status)];
   result.statusLabel = getStatusLabel(result.status);
   return result;
 }
@@ -141,7 +161,8 @@ export function deduplicateCieloCrossFile(cieloRows) {
 }
 
 export function isOkRow(row) {
-  return ['Conciliado', 'Dinheiro', 'Pagamento misto'].includes(row.statusLabel)
+  if (row.corrigido === true) return true;
+  return row.statusLabel === 'Conciliado'
     && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
 }
 
@@ -164,10 +185,11 @@ function pickCieloSale(hospitalRow, cieloIndex) {
 }
 
 function getStatusLabel(status) {
+  if (status.includes('Corrigido')) return 'Corrigido';
   if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return 'Divergente';
   if (status.includes('Não encontrado na Cielo') || status.includes('Não encontrado')) return 'Não encontrado';
   if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return 'Pendente';
-  if (status.includes('Dinheiro OK')) return 'Dinheiro';
+  if (status.includes('Dinheiro')) return 'Dinheiro';
   if (status.includes('Pagamento misto')) return 'Pagamento misto';
   return 'Conciliado';
 }
