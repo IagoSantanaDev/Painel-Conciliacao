@@ -187,11 +187,22 @@ function hasStatusContaining(row, text) {
   return Array.isArray(row.status) && row.status.some(status => String(status).includes(text));
 }
 
+function getDisplayPriority(row) {
+  if (row.corrigido === true) return 1;
+  if (isOkRow(row)) return 0;
+  if (row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar')) return 2;
+  if (row.statusLabel === 'Divergente') return 3;
+  if (row.statusLabel === 'Pendente') return 4;
+  if (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')) return 5;
+  return 6;
+}
+
 function renderTabela(el, state) {
   const hasSearch = Boolean(normalizeText(state.searchQuery));
   const rows = state.dadosFinal
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => hasSearch ? rowMatchesSearch(row, state.searchQuery) : rowMatchesFilter(row, state.currentFilter));
+    .filter(({ row }) => hasSearch ? rowMatchesSearch(row, state.searchQuery) : rowMatchesFilter(row, state.currentFilter))
+    .sort((a, b) => getDisplayPriority(a.row) - getDisplayPriority(b.row) || a.index - b.index);
 
   const total = state.dadosFinal.length;
   const naoEncontradoCount = state.dadosFinal.filter(row =>
