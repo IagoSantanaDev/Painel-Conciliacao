@@ -282,5 +282,15 @@ function applySearchValue(value) {
 }
 
 function focusFilterButton(filter) {
-  el.filters.querySelector(`[data-filter="${filter}"]`)?.focus();
+  const button = el.filters.querySelector(`[data-filter="${filter}"]`);
+  if (!button) return;
+
+  try {
+    button.focus({ preventScroll: true });
+  } catch {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    button.focus();
+    window.scrollTo(scrollX, scrollY);
+  }
 }
