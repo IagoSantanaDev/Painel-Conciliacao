@@ -161,10 +161,12 @@ function isCieloOnlyRow(row) {
 }
 
 function isCardPayment(row) {
-  return row.valorCartao > 0 || row._cieloOnly === true || isCardType(row, 'credito') || isCardType(row, 'debito');
+  if (isCieloOnlyRow(row)) return false;
+  return row.valorCartao > 0 || isCardType(row, 'credito') || isCardType(row, 'debito');
 }
 
 function isCashPayment(row) {
+  if (isCieloOnlyRow(row)) return false;
   return row.valorDinheiro > 0 || row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar');
 }
 
