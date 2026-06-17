@@ -57,7 +57,6 @@ el.clearBtn.addEventListener('click', limparArquivos);
 el.exportBtn.addEventListener('click', exportarTd);
 el.tableSearch?.addEventListener('input', handleSearchChange);
 el.tableSearch?.addEventListener('search', handleSearchChange);
-el.tableSearch?.addEventListener('change', handleSearchChange);
 el.tableSearch?.addEventListener('keyup', handleSearchKeyup);
 el.hospitalFile.addEventListener('change', () => renderUploadSummary(el));
 el.cieloFile.addEventListener('change', () => renderUploadSummary(el));
