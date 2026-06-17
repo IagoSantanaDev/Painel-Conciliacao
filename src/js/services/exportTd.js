@@ -68,10 +68,11 @@ function buildSheetGroups(dadosFinal) {
   const isCorrigido = row => row.corrigido === true;
   return [
     { name: 'Conciliados', rows: dadosFinal.filter(isOkRow) },
+    { name: 'Cartão', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorCartao > 0 || row.valorCielo > 0 || row._cieloOnly === true)) },
+    { name: 'Dinheiro', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorDinheiro > 0 || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar'))) },
     { name: 'Divergentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Divergente') },
     { name: 'Não encontrado', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado'))) },
     { name: 'Pendentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Pendente') },
-    { name: 'À Conciliar', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorDinheiro > 0 || hasStatusContaining(row, 'À Conciliar'))) },
   ];
 }
 
