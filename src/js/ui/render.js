@@ -1,5 +1,22 @@
-import { escapeAttr, escapeHtml, formatMoney, normalizeText } from '../utils/format.js';
-import { isOkRow } from '../services/reconciliation.js';
+import { escapeAttr, escapeHtml } from '../utils/sanitize.js';
+import { normalizeText } from '../utils/string.js';
+import { formatMoney } from '../utils/format.js';
+
+import {
+  FILTERS,
+  STATUS_LABEL,
+  isCardPayment,
+  isCardType,
+  isCashPayment,
+  isCieloOnly,
+  isCorrigido,
+  isDivergente,
+  isOkRow,
+  isOkRowBridge,
+  isPendente,
+} from '../services/paymentPredicates.js';
+import { getFileExt } from '../utils/fileExt.js';
+import { chunkedAppend } from './chunkedRender.js';
 
 export function showAlert(el, type, message) {
   el.alertHost.className = 'alert';
@@ -12,9 +29,9 @@ export function showAlert(el, type, message) {
 export function setLoading(el, state, loading) {
   el.processBtn.disabled = loading;
   el.processBtn.textContent = loading ? 'Processando...' : 'Processar conciliação';
-  if (el.heroStatus) {
-    el.heroStatus.textContent = loading ? 'Processando arquivos' : (state.dadosFinal.length ? 'Conciliação processada' : 'Aguardando arquivos');
-  }
+  el.processBtn.setAttribute('aria-busy', String(loading));
+  const resultsArea = document.getElementById('resultsArea');
+  if (resultsArea) resultsArea.setAttribute('aria-busy', String(loading));
 }
 
 export function renderUploadSummary(el) {
@@ -31,21 +48,21 @@ function summarizeFiles(files) {
   if (!files.length) return 'Nenhum arquivo selecionado';
 
   if (files.length === 1) {
-    const ext = files[0].name.split('.').pop().toLowerCase();
+    const ext = getFileExt(files[0]);
     const label = ext === 'pdf' ? 'PDF' : 'Planilha';
-    return `${files[0].name} [${label}]`;
+    return `${escapeHtml(files[0].name)} [${label}]`;
   }
 
   const counts = { pdf: 0, planilha: 0 };
   files.forEach(f => {
-    const ext = f.name.split('.').pop().toLowerCase();
+    const ext = getFileExt(f);
     if (ext === 'pdf') counts.pdf++;
     else counts.planilha++;
   });
   const parts = [];
   if (counts.planilha) parts.push(`${counts.planilha} planilha(s)`);
   if (counts.pdf) parts.push(`${counts.pdf} PDF(s)`);
-  const firstNames = files.slice(0, 2).map(file => file.name).join(', ');
+  const firstNames = files.slice(0, 2).map(file => escapeHtml(file.name)).join(', ');
   const remaining = files.length > 2 ? ` +${files.length - 2}` : '';
   return `${files.length} arquivos (${parts.join(', ')}): ${firstNames}${remaining}`;
 }
@@ -58,13 +75,10 @@ export function renderAll(el, state, onFilterChange) {
   el.tableWrap.classList.toggle('hidden', !hasRows);
   el.exportBtn.disabled = !hasRows;
   el.exportBtn.title = hasRows ? 'Exporta os registros processados, incluindo linhas ainda pendentes para revisão.' : '';
-  if (el.heroStatus) {
-    el.heroStatus.textContent = hasRows ? 'Conciliação processada' : 'Aguardando arquivos';
-  }
   renderUploadSummary(el);
 
   if (!hasRows) {
-    el.tabelaBody.innerHTML = '';
+    el.tabelaBody.replaceChildren();
     return;
   }
 
@@ -74,23 +88,66 @@ export function renderAll(el, state, onFilterChange) {
   renderTabela(el, state);
 }
 
-function computeMetrics(rows) {
+export function getEffectiveRow(row, duplicateAutorizadores) {
+  if (!row) return row;
+  if (isCieloOnly(row)) return row;
+  const dupes = duplicateAutorizadores instanceof Set ? duplicateAutorizadores : new Set();
+  const isDupeAuth = row.autorizador && dupes.has(row.autorizador);
+  if (!isDupeAuth) return row;
+  const hasDupBadge = (row.status || []).includes('Auth duplicado');
   return {
-    total: rows.length,
-    conciliados: rows.filter(isOkRow).length,
-    divergentes: rows.filter(row => row.corrigido !== true && row.statusLabel === 'Divergente').length,
-    naoEncontrado: rows.filter(row => row.corrigido !== true && (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado'))).length,
-    dinheiro: rows.filter(isCashPayment).length,
-    pendentes: rows.filter(row => row.corrigido !== true && row.statusLabel === 'Pendente').length,
-    cartao: rows.filter(isCardPayment).length,
-    valorCartao: rows.reduce((sum, row) => sum + (row.valorCartao || 0), 0),
-    valorDinheiro: rows.reduce((sum, row) => sum + (row.valorDinheiro || 0), 0),
-    valorTotal: rows.reduce((sum, row) => sum + (row.valorCartao || 0) + (row.valorDinheiro || 0), 0),
+    ...row,
+    statusLabel: STATUS_LABEL.DIVERGENTE,
+    status: hasDupBadge ? row.status : [...(row.status || []), 'Auth duplicado'],
+    cieloOnly: false,
+    _originalStatusLabel: row.statusLabel,
   };
 }
 
-function renderMetrics(el, state) {
-  const metrics = computeMetrics(state.dadosFinal);
+export function computeMetrics(rows, duplicateAutorizadores = new Set()) {
+  let total = 0, conciliados = 0, divergentes = 0, naoEncontrado = 0,
+      dinheiro = 0, pendentes = 0, cartao = 0,
+      valorCartao = 0, valorDinheiro = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const effectiveRow = getEffectiveRow(row, duplicateAutorizadores);
+    total++;
+    if (isOkRowBridge(effectiveRow)) conciliados++;
+    if (isDivergente(effectiveRow)) divergentes++;
+    if (isCieloOnly(effectiveRow)) naoEncontrado++;
+    if (isPendente(effectiveRow)) pendentes++;
+
+    if (isCashPayment(effectiveRow) && !isDivergente(effectiveRow)) dinheiro++;
+    if (isCardPayment(effectiveRow)) cartao++;
+    const vc = row.valorCartao || 0;
+    const vd = row.valorDinheiro || 0;
+    valorCartao += vc;
+    valorDinheiro += vd;
+  }
+
+  return {
+    total,
+    conciliados,
+    divergentes,
+    naoEncontrado,
+    dinheiro,
+    pendentes,
+    cartao,
+    valorCartao,
+    valorDinheiro,
+    valorTotal: valorCartao + valorDinheiro,
+  };
+}
+
+let _cachedMetrics = null;
+
+export function invalidateMetricsCache() {
+  _cachedMetrics = null;
+}
+
+export function renderMetrics(el, state) {
+  const metrics = _cachedMetrics || (_cachedMetrics = computeMetrics(state.dadosFinal, state.duplicateAutorizadores));
   const cards = [
     ['Total registros', metrics.total, ''],
     ['Conciliados', metrics.conciliados, 'primary'],
@@ -104,85 +161,49 @@ function renderMetrics(el, state) {
     ['Valor total', formatMoney(metrics.valorTotal), ''],
   ];
 
-  el.metricsGrid.innerHTML = cards
-    .map(([label, value, cls]) => `<div class="metric ${cls}"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`)
-    .join('');
+  el.metricsGrid.replaceChildren();
+  for (const [label, value, cls] of cards) {
+    const div = document.createElement('div');
+    div.className = `metric ${cls}`.trim();
+    const span = document.createElement('span');
+    span.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = String(value);
+    div.append(span, strong);
+    el.metricsGrid.append(div);
+  }
 }
 
+const attachedFilters = new WeakSet();
+
 function renderFilters(el, state, onFilterChange) {
-  const filters = [
-    ['todos', 'Todos'],
-    ['conciliado', 'Conciliados'],
-    ['corrigido', 'Corrigidos'],
-    ['cartao', 'Cartão'],
-    ['credito', 'Crédito'],
-    ['debito', 'Débito'],
-    ['dinheiro', 'Dinheiro/Espécie'],
-    ['divergente', 'Divergentes'],
-    ['naoEncontrado', 'Não encontrados'],
-    ['pendente', 'Pendentes'],
-  ];
-
-  el.filters.innerHTML = filters
-    .map(([key, label]) => `<button class="filter-btn ${state.currentFilter === key ? 'active' : ''}" type="button" data-filter="${key}">${label}</button>`)
-    .join('');
-
-  el.filters.querySelectorAll('button').forEach(button => {
-    button.addEventListener('click', () => {
+  if (!attachedFilters.has(el.filters)) {
+    attachedFilters.add(el.filters);
+    el.filters.addEventListener('click', e => {
+      const btn = e.target.closest('[data-filter]');
+      if (!btn) return;
       if (el.tableSearch) el.tableSearch.value = '';
-      onFilterChange(button.dataset.filter);
+      onFilterChange(btn.dataset.filter);
     });
-  });
+  }
+
+  el.filters.innerHTML = FILTERS
+    .map(({ key, label }) => `<button class="filter-btn ${state.currentFilter === key ? 'active' : ''}" type="button" data-filter="${key}" aria-current="${state.currentFilter === key ? 'true' : 'false'}">${label}</button>`)
+    .join('');
 }
 
 function renderControls(el, state) {
   if (el.tableSearch) el.tableSearch.value = state.searchQuery || '';
 }
 
-function rowMatchesFilter(row, filter) {
-  const isCorrectedMoney = row.corrigido === true && row.status?.some(s => s.includes('Dinheiro') || s.includes('Pagamento misto'));
-  switch (filter) {
-    case 'conciliado': return isOkRow(row) && !isCorrectedMoney;
-    case 'divergente': return row.corrigido !== true && row.statusLabel === 'Divergente';
-    case 'naoEncontrado': return row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado');
-    case 'cartao': return isCardPayment(row);
-    case 'credito': return isCardType(row, 'credito');
-    case 'debito': return isCardType(row, 'debito');
-    case 'dinheiro': return isCashPayment(row);
-    case 'pendente': return row.corrigido !== true && row.statusLabel === 'Pendente';
-    case 'corrigido': return row.corrigido === true;
-    case 'todos': return !isCieloOnlyRow(row);
-    default: return !isCieloOnlyRow(row);
-  }
+export function rowMatchesFilter(row, filter) {
+  const found = FILTERS.find(f => f.key === filter);
+  if (!found) return false;
+  return found.predicate(row);
 }
 
-function isCieloOnlyRow(row) {
-  return row._cieloOnly === true || row.status?.some(status => status === 'Não encontrado no sistema');
-}
-
-function isCardPayment(row) {
-  if (isCieloOnlyRow(row)) return false;
-  return row.valorCartao > 0 || isCardType(row, 'credito') || isCardType(row, 'debito');
-}
-
-function isCashPayment(row) {
-  if (isCieloOnlyRow(row)) return false;
-  return row.valorDinheiro > 0 || row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar');
-}
-
-function isCardType(row, type) {
-  const haystack = normalizeText([
-    row.tipoCartao,
-    row.formaPagamento,
-    row.bandeira,
-    row.cielo?.formaPagamento,
-  ].filter(Boolean).join(' '));
-  return haystack.includes(type);
-}
-
-function rowMatchesSearch(row, query) {
-  const normalizedQuery = normalizeText(query);
-  if (!normalizedQuery) return true;
+export function rowMatchesSearch(row, query) {
+  if (!query) return true;
   const haystack = normalizeText([
     row.registro,
     row.caixa,
@@ -190,100 +211,187 @@ function rowMatchesSearch(row, query) {
     row.autorizador,
     row.dataPagamento,
   ].filter(Boolean).join(' '));
-  return haystack.includes(normalizedQuery);
+  return haystack.includes(query);
 }
 
-function hasStatusContaining(row, text) {
-  return Array.isArray(row.status) && row.status.some(status => String(status).includes(text));
-}
-
-function getDisplayPriority(row) {
-  if (row.corrigido === true) return 1;
+export function getDisplayPriority(row, dupes = new Set()) {
+  if (row.autorizador && dupes.has(row.autorizador)) {
+    if (row._originalStatusLabel === STATUS_LABEL.NAO_ENCONTRADO) return 999;
+    return -1;
+  }
+  if (isCorrigido(row)) return 1;
   if (isOkRow(row)) return 0;
-  if (row.statusLabel === 'Dinheiro' || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar')) return 2;
-  if (row.statusLabel === 'Divergente') return 3;
-  if (row.statusLabel === 'Pendente') return 4;
-  if (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')) return 5;
-  return 6;
+  if (isCashPayment(row)) return 2;
+  if (row.statusLabel === STATUS_LABEL.DIVERGENTE) return 3;
+  if (row.statusLabel === STATUS_LABEL.PENDENTE) return 4;
+
+  if (row.statusLabel === STATUS_LABEL.NAO_ENCONTRADO) return 5;
+  if (isCieloOnly(row)) return 6;
+  return 7;
+}
+
+export function sortResultsByPriority(results, dupes) {
+  const groupPriority = new Map();
+  for (const r of results) {
+    const auth = r.row.autorizador;
+    if (!auth || !dupes.has(auth)) continue;
+    const current = groupPriority.get(auth);
+    if (current === undefined || r.priority < current) groupPriority.set(auth, r.priority);
+  }
+
+  return [...results].sort((a, b) => {
+    const aAuth = a.row.autorizador;
+    const bAuth = b.row.autorizador;
+    const aGroupPrio = aAuth && groupPriority.has(aAuth) ? groupPriority.get(aAuth) : a.priority;
+    const bGroupPrio = bAuth && groupPriority.has(bAuth) ? groupPriority.get(bAuth) : b.priority;
+    if (aGroupPrio !== bGroupPrio) return aGroupPrio - bGroupPrio;
+    const aIsDup = aAuth && dupes.has(aAuth);
+    const bIsDup = bAuth && dupes.has(bAuth);
+    if (aIsDup && bIsDup) {
+      if (aAuth === bAuth) return a.originalIndex - b.originalIndex;
+      return String(aAuth).localeCompare(String(bAuth));
+    }
+    return a.originalIndex - b.originalIndex;
+  });
 }
 
 function renderTabela(el, state) {
   const hasSearch = Boolean(normalizeText(state.searchQuery));
-  const rows = state.dadosFinal
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) => hasSearch ? rowMatchesSearch(row, state.searchQuery) : rowMatchesFilter(row, state.currentFilter))
-    .sort((a, b) => getDisplayPriority(a.row) - getDisplayPriority(b.row) || a.index - b.index);
+  const query = hasSearch ? normalizeText(state.searchQuery) : null;
+  const filter = state.currentFilter;
+  const dupes = state.duplicateAutorizadores || new Set();
+
+  const results = [];
+  let naoEncontradoCount = 0;
+  for (let i = 0; i < state.dadosFinal.length; i++) {
+    const row = state.dadosFinal[i];
+    if (isCieloOnly(row)) naoEncontradoCount++;
+
+    const effectiveRow = getEffectiveRow(row, dupes);
+
+    let matches;
+    if (query !== null) {
+      matches = rowMatchesSearch(effectiveRow, query);
+    } else {
+      const found = FILTERS.find(f => f.key === filter);
+      matches = found ? found.predicate(effectiveRow) : false;
+    }
+    if (!matches) continue;
+
+    results.push({ row: effectiveRow, originalIndex: i, priority: getDisplayPriority(effectiveRow, dupes) });
+  }
+
+  const sorted = sortResultsByPriority(results, dupes);
 
   const total = state.dadosFinal.length;
-  const naoEncontradoCount = state.dadosFinal.filter(row =>
-    row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado')
-  ).length;
-  const suffix = !hasSearch && (state.currentFilter === 'todos' || !state.currentFilter) && naoEncontradoCount > 0
+  const suffix = !hasSearch && (filter === 'todos' || !filter) && naoEncontradoCount > 0
     ? ` (${naoEncontradoCount} não encontrado)`
     : '';
-  el.resultCount.textContent = `${rows.length} de ${total} registro(s)${suffix}`;
-  el.tabelaBody.innerHTML = rows.map(({ row, index }) => renderTableRow(row, index)).join('');
+  el.resultCount.textContent = `${results.length} de ${total} registro(s)${suffix}`;
+
+  if (_currentRenderHandle) {
+    _currentRenderHandle.cancel();
+  }
+  const rowStrings = sorted.map(({ originalIndex }) =>
+    renderTableRow(state.dadosFinal[originalIndex], originalIndex, dupes)
+  );
+  el.tabelaBody.replaceChildren();
+  _currentRenderHandle = chunkedAppend(el.tabelaBody, rowStrings);
 }
 
-function renderTableRow(row, index) {
-  let rowClass = '';
-  if (row.corrigido) rowClass = 'row-corrigido';
-  else if (row.statusLabel === 'Divergente' || row.statusLabel === 'Não encontrado' || row._cieloOnly) rowClass = 'row-error';
-  else if (row.statusLabel === 'Pendente') rowClass = 'row-alert';
+let _currentRenderHandle = null;
+let _renderStartTime = 0;
 
-  return `<tr class="${rowClass}">
-    <td class="td-conciliado">${renderConciliadoCell(row, index)}</td>
-    <td>${cell(row, index, 'registro')}</td>
-    <td>${cell(row, index, 'caixa')}</td>
-    <td>${cell(row, index, 'lote')}</td>
-    <td>${cell(row, index, 'autorizador')}</td>
-    <td>${cell(row, index, 'valorCartao', 'money')}</td>
-    <td>${cell(row, index, 'valorDinheiro', 'money')}</td>
-    <td>${cell(row, index, 'valorFatura', 'money')}</td>
-    <td>${cell(row, index, 'desconto')}</td>
-    <td>${cell(row, index, 'formaPagamento')}</td>
-    <td>${renderStatusCell(row, index)}</td>
+export function renderTableRow(row, index, duplicateAutorizadores) {
+  const effectiveRow = getEffectiveRow(row, duplicateAutorizadores);
+  let rowClass = '';
+  if (isCorrigido(effectiveRow)) rowClass = 'row-corrigido';
+  else if (effectiveRow.statusLabel === STATUS_LABEL.DIVERGENTE || effectiveRow.statusLabel === STATUS_LABEL.NAO_ENCONTRADO || isCieloOnly(effectiveRow)) rowClass = 'row-error';
+  else if (effectiveRow.statusLabel === STATUS_LABEL.PENDENTE) rowClass = 'row-alert';
+
+  return `<tr data-idx="${String(index)}" class="${rowClass}">
+    <td class="td-conciliado">${renderConciliadoCell(effectiveRow, index)}</td>
+    <td>${cell(effectiveRow, index, 'registro')}</td>
+    <td>${cell(effectiveRow, index, 'caixa')}</td>
+    <td>${cell(effectiveRow, index, 'lote')}</td>
+    <td>${cell(effectiveRow, index, 'autorizador', 'text')}</td>
+    <td>${cell(effectiveRow, index, 'valorCartao', 'money')}</td>
+    <td>${cell(effectiveRow, index, 'valorDinheiro', 'money')}</td>
+    <td>${cell(effectiveRow, index, 'valorFatura', 'money')}</td>
+    <td>${cell(effectiveRow, index, 'desconto')}</td>
+    <td>${cell(effectiveRow, index, 'parcelas')}</td>
+    <td>${cell(effectiveRow, index, 'formaPagamento')}</td>
+    <td>${renderStatusCell(effectiveRow, index)}</td>
   </tr>`;
 }
 
 function renderConciliadoCell(row, index) {
   if (!needsConciliarCheckbox(row)) return '<span class="conciliado-empty" aria-hidden="true"></span>';
   const checked = row.corrigido ? 'checked' : '';
-  return `<input type="checkbox" class="conciliar-big" data-index="${index}" data-action="toggle-corrigido" ${checked} aria-label="Marcar linha como corrigida">`;
+  return `<input type="checkbox" class="conciliar-big" data-index="${String(index)}" data-action="toggle-corrigido" ${checked} aria-label="Marcar linha como corrigida">`;
 }
 
 function renderStatusCell(row, index) {
-  return `<div class="badges">${renderStatusBadges(row.status)}</div>`;
+  return `<div class="badges">${renderStatusBadges(row.status, row)}</div>`;
+}
+
+const LABELS_REQUIRING_CHECKBOX = new Set([
+  STATUS_LABEL.DIVERGENTE,
+  STATUS_LABEL.NAO_ENCONTRADO,
+  STATUS_LABEL.PENDENTE,
+  STATUS_LABEL.DINHEIRO,
+  STATUS_LABEL.PAGAMENTO_MISTO,
+]);
+
+const BADGE_CLASS_MAP = Object.freeze({
+  [STATUS_LABEL.CORRIGIDO]: 'success',
+  'À Conciliar': 'warning',
+});
+
+function getBadgeClass(item, row) {
+  if (BADGE_CLASS_MAP[item] !== undefined) return BADGE_CLASS_MAP[item];
+  if (item === 'Auth duplicado') return 'danger';
+  if (item.includes('Dinheiro') && item.includes('Diferença')) return 'danger';
+  if (item.includes('Conciliado') || item.includes('Dinheiro')) return 'success';
+  if (item.includes('Divergência') || item.includes('Diferença') || item.includes(STATUS_LABEL.NAO_ENCONTRADO) || item.includes('Sem autorizador') || isCieloOnly(row)) return 'danger';
+  if (item.includes('Pendente') || item.includes('Sem valor')) return 'warning';
+  if (item.includes('misto')) return 'info';
+  return 'neutral';
 }
 
 function needsConciliarCheckbox(row) {
-  if (row.corrigido) return true;
-  return ['Divergente', 'Não encontrado', 'Pendente', 'Dinheiro', 'Pagamento misto'].includes(row.statusLabel)
-    || row._cieloOnly === true;
+  if (isCorrigido(row)) return true;
+  return LABELS_REQUIRING_CHECKBOX.has(row.statusLabel);
 }
 
 function cell(row, index, field, type = 'text') {
   const value = row[field] ?? '';
-  if (row.corrigido) {
-    return type === 'money' ? `<span class="value">${formatMoney(value)}</span>` : escapeHtml(value || '—');
+  if (isCorrigido(row)) {
+    return type === 'money'
+      ? `<span class="value">${formatMoney(value)}</span>`
+      : `${escapeHtml(value || '—')}`;
   }
   if (!isOkRow(row)) {
-    const displayValue = type === 'money' ? String(value).replace('.', ',') : value;
-    return `<input class="edit" data-index="${index}" data-field="${field}" value="${escapeAttr(displayValue)}">`;
+    const displayValue = type === 'money' ? Number(value).toFixed(2).replace('.', ',') : value;
+    return `<input class="edit" data-index="${String(index)}" data-field="${escapeAttr(field)}" value="${escapeAttr(displayValue)}" inputmode="decimal" aria-label="${escapeAttr(field)}">`;
   }
-  return type === 'money' ? `<span class="value">${formatMoney(value)}</span>` : escapeHtml(value || '—');
+  return type === 'money'
+    ? `<span class="value">${formatMoney(value)}</span>`
+    : `${escapeHtml(value || '—')}`;
 }
 
-function renderStatusBadges(status) {
+export function updateSingleRow(el, row, index, duplicateAutorizadores) {
+  const tr = el.tabelaBody.querySelector(`tr[data-idx="${index}"]`);
+  if (!tr) return false;
+  const template = document.createElement('template');
+  template.innerHTML = renderTableRow(row, index, duplicateAutorizadores);
+  tr.replaceWith(...template.content.childNodes);
+  return true;
+}
+
+function renderStatusBadges(status, row) {
   return status.map(item => {
-    let cls = 'neutral';
-    if (item === 'Corrigido') cls = 'success';
-    else if (item === 'À Conciliar') cls = 'warning';
-    else if (item.includes('Dinheiro') && item.includes('Diferença')) cls = 'danger';
-    else if (item.includes('Conciliado') || item.includes('Dinheiro')) cls = 'success';
-    else if (item.includes('Divergência') || item.includes('Diferença') || item.includes('Não encontrado') || item.includes('Sem autorizador')) cls = 'danger';
-    else if (item.includes('Pendente') || item.includes('Sem valor')) cls = 'warning';
-    else if (item.includes('misto')) cls = 'info';
+    const cls = getBadgeClass(item, row);
     return `<span class="badge ${cls}">${escapeHtml(item)}</span>`;
   }).join('');
 }

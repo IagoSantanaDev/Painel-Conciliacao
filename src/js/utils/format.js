@@ -1,63 +1,83 @@
-export function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    "'": '&#39;',
-    '"': '&quot;',
-  }[c]));
-}
+const RE_DANGEROUS_CHARS = /[&<>"'`=;(){}[\]]/;
+const RE_NUMERIC_ONLY = /^\d+$/;
+const RE_COMPOUND_AUTH = /(\d{6})$/;
 
-export function escapeAttr(value) {
-  return escapeHtml(value).replace(/`/g, '&#96;');
-}
+const RE_RS_PREFIX = /R\$/gi;
+const RE_NON_MONEY = /[^\d,.-]/g;
+const RE_PTBR_THOUSAND_DECIMAL = /^-?\d{1,3}(\.\d{3})+(,\d{1,2})?$/;
+const RE_PTBR_INTEGER = /^-?\d{1,3}(\.\d{3})+$/;
+const RE_US_THOUSAND_DECIMAL = /^-?\d{1,3}(,\d{3})*(\.\d+)?$/;
+const RE_STRICT_PTBR = /^-?(\d+|\d{1,3}(\.\d{3})+)(,\d{1,2})?$/;
+const RE_STRICT_DECIMAL = /^-?\d+(\.\d{1,2})?$/;
 
-export function normalizeText(value) {
-  return String(value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
+const RE_ESPECIE = /^(ESP[ÉE]CIE|DINHEIRO)/i;
+const RE_CREDITO = /CR[ÉE]DITO/i;
+const RE_DEBITO = /D[EÉ]BITO/i;
 
-export function normalizeHeader(value) {
-  return normalizeText(value);
-}
+import { normalizeText, normalizeHeader } from './string.js';
+
+const MAX_AUTH_LEN = 50;
 
 export function normalizeAuth(value) {
   const raw = String(value ?? '').replace(/\.0$/, '').trim();
   if (!raw) return '';
-  const compact = raw.replace(/\s+/g, '');
-  return /^\d+$/.test(compact) ? compact.padStart(6, '0') : compact.toUpperCase();
+  if (RE_DANGEROUS_CHARS.test(raw)) {
+    const firstChar = raw[0];
+    const category = /[=<>]/.test(firstChar) ? 'formula' : /[(){}\[\]]/.test(firstChar) ? 'bracket' : 'html';
+    console.warn(`[normalizeAuth] Caractere perigoso detectado (${raw.length} chars, categoria: ${category}).`);
+    return '';
+  }
+  const sanitized = raw;
+  if (!sanitized) return '';
+  const compact = sanitized.replace(/\s+/g, '');
+  if (RE_NUMERIC_ONLY.test(compact)) return compact;
+  const compound = sanitized.match(RE_COMPOUND_AUTH);
+  if (compound) return compound[1];
+  return compact.toUpperCase().substring(0, MAX_AUTH_LEN);
+}
+
+function parseMoneyRaw(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const originalString = String(value ?? '');
+  if (/\s/.test(originalString.replace(RE_RS_PREFIX, ''))) {
+    console.warn(`[parseMoneyBR] whitespace detectado em valor monetário (${originalString.length} chars). Concatenação silenciosa pode inflar valor.`);
+  }
+  const raw = originalString.replace(RE_RS_PREFIX, '').replace(/\s/g, '').trim();
+  if (!raw) return null;
+  const stripped = raw.replace(RE_NON_MONEY, '');
+  if (RE_PTBR_THOUSAND_DECIMAL.test(stripped)) {
+    return parseFloat(stripped.replace(/\./g, '').replace(',', '.'));
+  }
+  if (RE_PTBR_INTEGER.test(stripped)) {
+    return parseFloat(stripped.replace(/\./g, ''));
+  }
+  if (RE_US_THOUSAND_DECIMAL.test(stripped)) {
+    return parseFloat(stripped.replace(/,/g, ''));
+  }
+  const normalized = stripped.includes(',') ? stripped.replace(/\./g, '').replace(',', '.') : stripped;
+  const n = Number.parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function parseMoneyBR(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  let raw = String(value ?? '').replace(/R\$/gi, '').replace(/\s/g, '').trim();
-  if (!raw) return 0;
-  raw = raw.replace(/[^\d,.-]/g, '');
-  if (raw.includes(',')) raw = raw.replace(/\./g, '').replace(',', '.');
-  else if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, '');
-  const n = Number.parseFloat(raw);
-  return Number.isFinite(n) ? n : 0;
+  return parseMoneyRaw(value) ?? 0;
 }
 
 export function parseMoneyBRStrict(value) {
-  if (typeof value === 'number') {
-    return { value: Number.isFinite(value) ? value : 0, valid: Number.isFinite(value) };
-  }
-
+  const n = parseMoneyRaw(value);
+  if (n !== null) return { value: n, valid: true };
+  if (typeof value === 'number') return { value: 0, valid: false };
   const original = String(value ?? '').trim();
   if (!original) return { value: 0, valid: false };
 
-  const compact = original.replace(/R\$/gi, '').replace(/\s/g, '');
-  const hasOnlyMoneyChars = compact === compact.replace(/[^\d,.-]/g, '');
-  const ptBrFormat = /^-?(\d+|\d{1,3}(\.\d{3})+)(,\d{1,2})?$/.test(compact);
-  const decimalDotFormat = /^-?\d+(\.\d{1,2})?$/.test(compact);
-  const valid = hasOnlyMoneyChars && (ptBrFormat || decimalDotFormat);
+  const compact = original.replace(RE_RS_PREFIX, '').replace(/\s/g, '');
+  const hasOnlyMoneyChars = compact === compact.replace(RE_NON_MONEY, '');
+  const ptBrFormat = RE_STRICT_PTBR.test(compact);
+  const usThousandFormat = RE_US_THOUSAND_DECIMAL.test(compact);
+  const decimalDotFormat = RE_STRICT_DECIMAL.test(compact);
+  const valid = hasOnlyMoneyChars && (ptBrFormat || usThousandFormat || decimalDotFormat);
 
-  return { value: valid ? parseMoneyBR(original) : 0, valid };
+  return { value: valid ? parseMoneyRaw(original) ?? 0 : 0, valid };
 }
 
 export function formatMoney(value) {
@@ -65,12 +85,13 @@ export function formatMoney(value) {
 }
 
 export function normalizePaymentMethod(value) {
+  value = value ?? '';
   const n = normalizeText(value).toUpperCase();
   if (!n) return '';
-  if (n.includes('ESPECIE') || n.includes('DINHEIRO')) return 'ESPÉCIE';
-  if (n.includes('CRED')) return 'CRÉDITO';
-  if (n.includes('DEB')) return 'DÉBITO';
-  return String(value).trim().toUpperCase();
+  if (RE_ESPECIE.test(n)) return 'ESPÉCIE';
+  if (RE_CREDITO.test(n) && !RE_DEBITO.test(n)) return 'CRÉDITO';
+  if (RE_DEBITO.test(n)) return 'DÉBITO';
+  return '';
 }
 
 export function normalizeCardType(value) {
@@ -83,23 +104,69 @@ export function normalizeBrand(value) {
   return n ? n.toUpperCase() : '';
 }
 
-export function createId(prefix, index) {
-  return (crypto.randomUUID && crypto.randomUUID()) || `${prefix}-${Date.now()}-${index}`;
+const _CONTA_FATURA_RPS = Object.freeze(['Número Fatura RPS', 'Numero Fatura RPS']);
+const _CONTA_FATURA_NFE = Object.freeze(['Número Fatura NFE', 'Numero Fatura NFE']);
+
+export const HEADER_ALIASES = Object.freeze({
+  autorizador: ['Código de autorização', 'Codigo de Autorização', 'Codigo de autorizacao', 'Código de autorizacao'],
+  numeroMaquina: ['Número da máquina', 'Numero da maquina', 'Número máquina', 'Numero maquina', 'Máquina', 'Maquina'],
+  valorCartao: ['Valor Cartão', 'Valor Cartao'],
+  valorDinheiro: ['Valor Dinheiro'],
+  valorFatura: ['Valor Fatura'],
+  valorBruto: ['Valor bruto', 'Valor'],
+  dataPagamento: ['Data Pagamento'],
+  registro: ['Número Registro', 'Numero Registro'],
+  caixa: ['Caixa'],
+  lote: ['Lote'],
+  contaFaturaRps: _CONTA_FATURA_RPS,
+  contaFaturaNfe: _CONTA_FATURA_NFE,
+  contaFatura: [..._CONTA_FATURA_RPS, ..._CONTA_FATURA_NFE],
+  formaPagamento: ['Forma de pagamento'],
+  debitoCredito: ['Débito/ Crédito', 'Débito/Crédito', 'Debito/ Credito', 'Forma de pagamento'],
+  bandeira: ['Bandeira'],
+  parcelas: ['Parcelas', 'Quantidade de parcelas', 'Quantidade total de parcelas', 'Qtd parcelas', 'Número de parcelas', 'Numero de parcelas', 'Plano'],
+  dataVenda: ['Data da venda'],
+  horaVenda: ['Hora da venda'],
+  dataPrevistaPagamento: ['Data prevista do pagamento'],
+  nsu: ['NSU/DOC', 'NSU'],
+});
+
+function resolveAliases(candidates) {
+  return candidates.flatMap(candidate => HEADER_ALIASES[candidate] ?? [candidate]);
 }
 
-export function getValue(row, candidates) {
+export function getValue(row, candidates, normalizedMap) {
+  const aliases = resolveAliases(candidates);
+  if (normalizedMap) {
+    for (const alias of aliases) {
+      const key = normalizedMap.get(normalizeHeader(alias));
+      if (key !== undefined) return row[key];
+    }
+    return '';
+  }
   const normalized = new Map(Object.keys(row).map(k => [normalizeHeader(k), k]));
-  for (const candidate of candidates) {
-    const key = normalized.get(normalizeHeader(candidate));
+  for (const alias of aliases) {
+    const key = normalized.get(normalizeHeader(alias));
     if (key !== undefined) return row[key];
   }
   return '';
 }
 
-export function getValueContains(row, terms) {
+export function getValueContains(row, terms, normalizedMap) {
+  const termNorms = terms.map(normalizeHeader);
+  if (normalizedMap) {
+    for (const [normKey, origKey] of normalizedMap) {
+      for (let i = 0; i < termNorms.length; i++) {
+        if (normKey.includes(termNorms[i])) return row[origKey];
+      }
+    }
+    return '';
+  }
   for (const key of Object.keys(row)) {
     const nk = normalizeHeader(key);
-    if (terms.some(term => nk.includes(normalizeHeader(term)))) return row[key];
+    for (let i = 0; i < termNorms.length; i++) {
+      if (nk.includes(termNorms[i])) return row[key];
+    }
   }
   return '';
 }
@@ -110,4 +177,30 @@ export function isSummaryRow(row) {
     || combined.includes('total de documentos')
     || combined.includes('saldo final')
     || combined.includes('saldo inicial');
+}
+
+export function getString(row, candidates, normalizedMap) {
+  return String(getValue(row, candidates, normalizedMap) ?? '').trim();
+}
+
+export function getMoney(row, candidates, normalizedMap) {
+  return parseMoneyBR(getValue(row, candidates, normalizedMap));
+}
+
+export function createId(prefix, index) {
+  if (index !== undefined) {
+    return `${prefix}-${index}`;
+  }
+  return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now()}`;
+}
+
+export function normalizePdfBrand(value) {
+  const text = String(value ?? '').replace(/-+$/, '').trim();
+  const normalized = normalizeText(text);
+  if (normalized.includes('american express')) return 'AMERICAN EXPRESS';
+  if (normalized.includes('master')) return 'MASTERCARD';
+  if (normalized.includes('visa')) return 'VISA';
+  if (normalized.includes('elo')) return 'ELO';
+  if (normalized.includes('hiper')) return 'HIPERCARD';
+  return normalizeBrand(text.split(' - ')[0]);
 }

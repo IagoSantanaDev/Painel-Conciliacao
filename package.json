@@ -1,0 +1,16 @@
+{
+  "name": "painel-conciliacao",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Painel de Conciliação",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "papaparse": "5.5.3"
+  }
+}
