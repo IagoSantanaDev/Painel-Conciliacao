@@ -4,22 +4,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Painel de conciliação de vendas Cielo × hospitalares (BI/MV ou PDF Tasy).">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="color-scheme" content="normal">
   <title>Dashboard de Conciliação</title>
+  <link rel="canonical" href="./">
   <link rel="icon" type="image/png" href="src/assets/favicon.png">
+  <link rel="manifest" href="src/assets/manifest.json">
+  <link rel="stylesheet" href="src/styles/dashboard.css?v=1.0.7"
+    integrity="sha384-YYvPvzZij/tlKfPrew0yVIuviyBowrkcc5/3YyM7r5t41IDaQR0VKum+SNkIWn2x"
+    crossorigin="anonymous">
 
-  <link rel="stylesheet" href="src/styles/dashboard.css">
-
-  <script src="src/vendor/papaparse.min.js"></script>
-  <script src="src/vendor/xlsx.full.min.js"></script>
-  <script src="src/vendor/pdf.min.js"></script>
+  <script defer src="src/vendor/papaparse.min.js?v=5.4.1"
+    integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs"
+    crossorigin="anonymous"></script>
+  <script defer src="src/vendor/xlsx.full.min.js?v=0.20.2"
+    integrity="sha384-gx12pQMMYnabkTgbCHqqrT65RwDnXI/f/dU2H9JUmT0KUeiMF5bf+yroQBmX0Nuk"
+    crossorigin="anonymous"></script>
   <script type="module" src="src/js/app.js"></script>
 </head>
 
 <body>
   <div class="page">
-    <section class="hero" aria-labelledby="page-title">
+    <header class="hero" aria-labelledby="page-title">
       <h1 id="page-title">Dashboard de Conciliação</h1>
-    </section>
+    </header>
 
     <main class="main-stack">
       <section class="card import-card" aria-labelledby="import-title">
@@ -42,7 +51,8 @@
                 <span class="drop-file-name" id="hospitalFileName">Nenhum arquivo selecionado</span>
               </span>
             </label>
-            <input class="file-input sr-only" type="file" id="hospitalFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods,.pdf" multiple>
+            <input class="file-input sr-only" type="file" id="hospitalFile"
+              accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods,.pdf" multiple>
           </div>
 
           <div class="field upload-field">
@@ -57,7 +67,8 @@
                 <span class="drop-file-name" id="cieloFileName">Nenhum arquivo selecionado</span>
               </span>
             </label>
-            <input class="file-input sr-only" type="file" id="cieloFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods" multiple>
+            <input class="file-input sr-only" type="file" id="cieloFile" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods"
+              multiple>
           </div>
 
           <div class="import-actions">
@@ -70,12 +81,13 @@
         </div>
       </section>
 
-      <section class="results-area">
+      <section class="results-area" aria-labelledby="results-title" id="resultsArea">
+        <h2 id="results-title" class="sr-only">Resultados da conciliação</h2>
         <div class="metrics hidden" id="metricsGrid"></div>
-        <section class="card">
+        <section class="card" aria-labelledby="tabela-title">
           <div class="card-header">
             <div>
-              <h2 class="card-title">Tabela de conciliação</h2>
+              <h2 class="card-title" id="tabela-title">Tabela de conciliação</h2>
               <p class="card-description">Linhas com pendência ou divergência ficam editáveis para revisão antes da
                 exportação.</p>
             </div>
@@ -84,7 +96,9 @@
             <div class="toolbar hidden" id="toolbar">
               <div class="table-controls" aria-label="Pesquisa da tabela">
                 <label class="control-field search-field">
-                  <input id="tableSearch" type="search" aria-label="Pesquisar por registro, caixa, lote, autorizador ou data" placeholder="Registro, caixa, lote, autorizador ou data">
+                  <input id="tableSearch" type="search"
+                    aria-label="Pesquisar por registro, caixa, lote, autorizador ou data"
+                    placeholder="Registro, caixa, lote, autorizador ou data">
                 </label>
               </div>
               <div class="filters" id="filters" aria-label="Filtros de status"></div>
@@ -96,19 +110,25 @@
             </div>
             <div class="table-wrap hidden" id="tableWrap">
               <table id="tabela">
+                <caption class="sr-only">
+                  Tabela de conciliação de vendas: cada linha é um registro hospitalar
+                  com número de registro, caixa, lote, autorizador, valores, forma de pagamento
+                  e status de reconciliação.
+                </caption>
                 <thead>
                   <tr>
-                    <th class="th-conciliado" aria-label="Marcar como corrigido"></th>
-                    <th>Número Registro</th>
-                    <th>Caixa</th>
-                    <th>Lote</th>
-                    <th>Autorizador</th>
-                    <th>Valor Cartão</th>
-                    <th>Valor Dinheiro</th>
-                    <th>Valor Fatura</th>
-                    <th>Desconto</th>
-                    <th>Forma Pgto</th>
-                    <th>Status</th>
+                    <th scope="col" class="th-conciliado" aria-label="Marcar como corrigido"></th>
+                    <th scope="col">Número Registro</th>
+                    <th scope="col">Caixa</th>
+                    <th scope="col">Lote</th>
+                    <th scope="col">Autorizador</th>
+                    <th scope="col">Valor Cartão</th>
+                    <th scope="col">Valor Dinheiro</th>
+                    <th scope="col">Valor Fatura</th>
+                    <th scope="col">Desconto</th>
+                    <th scope="col">Parcelas</th>
+                    <th scope="col">Forma Pgto</th>
+                    <th scope="col">Status</th>
                   </tr>
                 </thead>
                 <tbody></tbody>

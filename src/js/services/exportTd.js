@@ -1,40 +1,44 @@
-import { isOkRow } from './reconciliation.js';
+import {
+  EVENTO_PARTICULAR,
+  SHEET_NAME,
+  SHEET_ORDER,
+  isCieloOnly,
+  isCorrigido,
+  isCardPayment,
+  isCashPayment,
+  isDivergente,
+  isPendente,
+  withCieloFallback,
+} from './paymentPredicates.js';
+import { sanitizeXlsxCellValue } from '../utils/sanitize.js';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const CURRENCY_COLUMNS = new Set(['Valor Fatura', 'Valor Banco']);
 const CURRENCY_FORMAT = '"R$" #,##0.00';
+const FORMA_ESPECIE = 'ESPÉCIE';
 
-export const TD_COLUMNS = [
-  'Data pag/RPS',
-  'Data banco',
-  'Aten/Registro',
-  'Conta/Fatura',
-  'Valor Fatura',
-  'Valor Banco',
-  'Evento',
-  'Forma de Pagamento',
-  'Parcela',
-  'Conta de Crédito',
-  'Observação',
-  'Autorizador',
-  'Número máquina POS',
-];
+const LAYOUTS = {
+  TD: {
+    columns: [
+      'Data pag/RPS', 'Data banco', 'Aten/Registro', 'Conta/Fatura',
+      'Valor Fatura', 'Valor Banco', 'Evento', 'Forma de Pagamento',
+      'Parcela', 'Conta de Crédito', 'Observação', 'Autorizador',
+      'Número máquina POS',
+    ],
+    currencyColumns: ['Valor Fatura', 'Valor Banco'],
+  },
+  TASY_CIELO: {
+    columns: [
+      'Data RPS', 'Data Banco', 'Atend/Registro', 'Conta/Fatura',
+      'Valor Fatura', 'Valor Banco', 'Evento', 'Forma de pagamento',
+      'Parcela', 'Conta crédito', 'Observação', 'Código autorizador',
+      'Número máquina POS',
+    ],
+    currencyColumns: ['Valor Fatura', 'Valor Banco'],
+  },
+};
 
-export const TASY_CIELO_COLUMNS = [
-  'Data RPS',
-  'Data Banco',
-  'Atend/Registro',
-  'Conta/Fatura',
-  'Valor Fatura',
-  'Valor Banco',
-  'Evento',
-  'Forma de pagamento',
-  'Parcela',
-  'Conta crédito',
-  'Observação',
-  'Código autorizador',
-  'Número máquina POS',
-];
+export const TD_COLUMNS = LAYOUTS.TD.columns;
+export const TASY_CIELO_COLUMNS = LAYOUTS.TASY_CIELO.columns;
 
 export function exportTd(dadosFinal, options = {}) {
   if (!dadosFinal.length) {
@@ -42,7 +46,8 @@ export function exportTd(dadosFinal, options = {}) {
   }
 
   const useTasyCieloLayout = options.source === 'PDF_TASY' || dadosFinal.some(row => row.origem === 'PDF_TASY');
-  const columns = useTasyCieloLayout ? TASY_CIELO_COLUMNS : TD_COLUMNS;
+  const layoutKey = useTasyCieloLayout ? 'TASY_CIELO' : 'TD';
+  const layout = LAYOUTS[layoutKey];
   const buildRows = useTasyCieloLayout ? buildTasyCieloRows : buildTdRows;
   const filename = useTasyCieloLayout ? 'exportacao_Tasy_Cielo.xlsx' : 'exportacao_TD.xlsx';
   const sheetGroups = buildSheetGroups(dadosFinal);
@@ -52,7 +57,7 @@ export function exportTd(dadosFinal, options = {}) {
   sheetGroups.forEach(group => {
     const rows = buildRows(group.rows);
     totalRows += rows.length;
-    appendWorksheet(wb, group.name, rows, columns);
+    appendWorksheet(wb, group.name, rows, layout);
   });
 
   if (totalRows === 0) {
@@ -61,38 +66,51 @@ export function exportTd(dadosFinal, options = {}) {
 
   downloadWorkbook(wb, filename);
 
-  return { filename, rowCount: totalRows, sheetCount: sheetGroups.length, columns };
+  return { filename, rowCount: totalRows, sheetCount: sheetGroups.length, columns: layout.columns };
 }
 
-function buildSheetGroups(dadosFinal) {
-  const isCorrigido = row => row.corrigido === true;
-  return [
-    { name: 'Conciliados', rows: dadosFinal.filter(isOkRow) },
-    { name: 'Cartão', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorCartao > 0 || row.valorCielo > 0 || row._cieloOnly === true)) },
-    { name: 'Dinheiro', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.valorDinheiro > 0 || row.statusLabel === 'Pagamento misto' || hasStatusContaining(row, 'À Conciliar'))) },
-    { name: 'Divergentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Divergente') },
-    { name: 'Não encontrado', rows: dadosFinal.filter(row => !isCorrigido(row) && (row.statusLabel === 'Não encontrado' || hasStatusContaining(row, 'Não encontrado'))) },
-    { name: 'Pendentes', rows: dadosFinal.filter(row => !isCorrigido(row) && row.statusLabel === 'Pendente') },
-  ];
+export function classifyExportSheet(row) {
+  if (isCorrigido(row)) return SHEET_NAME.CONCILIADOS;
+  if (isCieloOnly(row)) return SHEET_NAME.NAO_ENCONTRADO;
+  const hasAuthDup = (row.status || []).includes('Auth duplicado');
+  if (hasAuthDup) return SHEET_NAME.DIVERGENTES;
+  if (isCardPayment(row) || row.valorCielo > 0) return SHEET_NAME.CARTAO;
+  if (isCashPayment(row)) return SHEET_NAME.DINHEIRO;
+  if (isDivergente(row)) return SHEET_NAME.DIVERGENTES;
+  if (isPendente(row)) return SHEET_NAME.PENDENTES;
+  return SHEET_NAME.PENDENTES;
 }
 
-function hasStatusContaining(row, text) {
-  return Array.isArray(row.status) && row.status.some(status => String(status).includes(text));
+export function buildSheetGroups(dadosFinal) {
+  const groups = new Map();
+
+  dadosFinal.forEach(row => {
+    const sheetName = classifyExportSheet(row);
+    if (!groups.has(sheetName)) {
+      groups.set(sheetName, []);
+    }
+    groups.get(sheetName).push(row);
+  });
+
+  return SHEET_ORDER
+    .filter(name => groups.has(name))
+    .map(name => ({ name, rows: groups.get(name) }));
 }
 
-function appendWorksheet(wb, sheetName, rows, columns) {
-  const ws = window.XLSX.utils.json_to_sheet(rows, { header: columns });
-  ws['!cols'] = columns.map(column => ({ wch: Math.max(14, column.length + 2) }));
-  applyCurrencyFormat(ws, columns);
+function appendWorksheet(wb, sheetName, rows, layout) {
+  const ws = window.XLSX.utils.json_to_sheet(rows, { header: layout.columns });
+  ws['!cols'] = layout.columns.map(column => ({ wch: Math.max(14, column.length + 2) }));
+  applyCurrencyFormat(ws, layout);
   window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
 }
 
-function applyCurrencyFormat(ws, columns) {
+function applyCurrencyFormat(ws, layout) {
   if (!ws['!ref']) return;
   const range = window.XLSX.utils.decode_range(ws['!ref']);
+  const currencySet = new Set(layout.currencyColumns);
 
   for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex++) {
-    if (!CURRENCY_COLUMNS.has(columns[columnIndex])) continue;
+    if (!currencySet.has(layout.columns[columnIndex])) continue;
 
     for (let rowIndex = range.s.r + 1; rowIndex <= range.e.r; rowIndex++) {
       const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
@@ -104,160 +122,84 @@ function applyCurrencyFormat(ws, columns) {
   }
 }
 
-function buildTdRows(dadosFinal) {
-  const dadosTD = [];
+function buildObservacao(observacoes) {
+  if (!Array.isArray(observacoes) || !observacoes.length) return '';
+  return observacoes.join('; ');
+}
+
+const COLUMN_FIELD_MAP = [
+  'data', 'dataBanco', 'registro', 'contaFatura',
+  'valorFatura', 'valorBanco', 'evento', 'formaPagamento',
+  'parcela', 'contaCredito', 'observacao', 'autorizador', 'numeroMaquinaPos',
+];
+
+function createExportRow(layout, fields) {
+  const cols = LAYOUTS[layout].columns;
+  const obs = fields.observacao !== undefined
+    ? fields.observacao
+    : buildObservacao(fields.observacoes);
+
+  return Object.fromEntries(
+    cols.map((col, i) => {
+      const rawValue = i === 10 ? obs : (fields[COLUMN_FIELD_MAP[i]] ?? '');
+      return [col, sanitizeXlsxCellValue(rawValue)];
+    })
+  );
+}
+
+function buildPaymentRows(dadosFinal, layout, cardValueSource = r => r.valorCartao || 0) {
+  const out = [];
 
   dadosFinal.forEach(row => {
-    const numeroMaquinaPos = row.numeroMaquina || row.cielo?.numeroMaquina || '';
+    const r = withCieloFallback(row);
+    const numeroMaquinaPos = r.numeroMaquina || '';
 
-    if (row.valorCartao > 0) {
-      dadosTD.push(createTdRow({
-        dataPagRps: row.dataPagamento || row.cielo?.dataVenda || '',
+    if (r.valorCartao > 0 || r.valorCielo > 0) {
+      out.push(createExportRow(layout, {
+        data: r.dataPagamento || r.dataVenda || '',
         dataBanco: '',
-        atenRegistro: row.registro || '',
-        contaFatura: row.contaFatura || '',
-        valorFatura: row.valorFatura || 0,
-        valorBanco: row.valorCartao || 0,
-        evento: 'Particular',
-        formaPagamento: row.formaPagamento || '',
-        parcela: row.parcelas || '',
+        registro: r.registro || '',
+        contaFatura: r.contaFatura || '',
+        valorFatura: r.valorFatura || 0,
+        valorBanco: cardValueSource(r),
+        evento: EVENTO_PARTICULAR,
+        formaPagamento: r.formaPagamento || '',
+        parcela: r.parcelas || '',
         contaCredito: '',
-        observacao: row.desconto || '',
-        autorizador: row.autorizador || '',
+        observacao: '',
+        autorizador: r.autorizador || '',
         numeroMaquinaPos,
       }));
     }
 
-    if (row.valorDinheiro > 0) {
-      dadosTD.push(createTdRow({
-        dataPagRps: row.dataPagamento || '',
-        dataBanco: '',
-        atenRegistro: row.registro || '',
-        contaFatura: row.contaFatura || '',
-        valorFatura: row.valorFatura || 0,
-        valorBanco: row.valorDinheiro || 0,
-        evento: 'Particular',
-        formaPagamento: 'ESPÉCIE',
+    if (r.valorDinheiro > 0) {
+      out.push(createExportRow(layout, {
+        data: r.dataPagamento || '',
+        dataBanco: r.dataPagamento || '',
+        registro: r.registro || '',
+        contaFatura: r.contaFatura || '',
+        valorFatura: r.valorFatura || 0,
+        valorBanco: r.valorDinheiro || 0,
+        evento: EVENTO_PARTICULAR,
+        formaPagamento: FORMA_ESPECIE,
         parcela: '',
         contaCredito: '',
-        observacao: row.desconto || '',
+        observacao: '',
         autorizador: '',
         numeroMaquinaPos: '',
       }));
     }
   });
 
-  return dadosTD;
+  return out;
 }
 
 function buildTasyCieloRows(dadosFinal) {
-  const dadosTD = [];
-
-  dadosFinal.forEach(row => {
-    const numeroMaquinaPos = row.numeroMaquina || row.cielo?.numeroMaquina || '';
-
-    if (row.valorCartao > 0 || row.valorCielo > 0) {
-      dadosTD.push(createTasyCieloRow({
-        dataRps: row.dataPagamento || row.cielo?.dataVenda || '',
-        dataBanco: '',
-        atendRegistro: row.registro || '',
-        contaFatura: row.contaFatura || '',
-        valorFatura: row.valorFatura || 0,
-        valorBanco: row.cielo?.valorBruto || row.valorCielo || row.valorCartao || 0,
-        evento: 'Particular',
-        formaPagamento: row.formaPagamento || row.cielo?.formaPagamento || '',
-        parcela: row.parcelas || row.cielo?.parcelas || '',
-        contaCredito: '',
-        observacao: row.desconto || '',
-        codigoAutorizador: row.autorizador || row.cielo?.autorizador || '',
-        numeroMaquinaPos,
-      }));
-    }
-
-    if (row.valorDinheiro > 0) {
-      dadosTD.push(createTasyCieloRow({
-        dataRps: row.dataPagamento || '',
-        dataBanco: '',
-        atendRegistro: row.registro || '',
-        contaFatura: row.contaFatura || '',
-        valorFatura: row.valorFatura || 0,
-        valorBanco: row.valorDinheiro || 0,
-        evento: 'Particular',
-        formaPagamento: 'ESPÉCIE',
-        parcela: '',
-        contaCredito: '',
-        observacao: row.desconto || '',
-        codigoAutorizador: '',
-        numeroMaquinaPos: '',
-      }));
-    }
-  });
-
-  return dadosTD;
+  return buildPaymentRows(dadosFinal, 'TASY_CIELO', r => r.valorBruto || r.valorCielo || r.valorCartao || 0);
 }
 
-function createTasyCieloRow({
-  dataRps,
-  dataBanco,
-  atendRegistro,
-  contaFatura,
-  valorFatura,
-  valorBanco,
-  evento,
-  formaPagamento,
-  parcela,
-  contaCredito,
-  observacao,
-  codigoAutorizador,
-  numeroMaquinaPos,
-}) {
-  return {
-    'Data RPS': dataRps,
-    'Data Banco': dataBanco,
-    'Atend/Registro': atendRegistro,
-    'Conta/Fatura': contaFatura,
-    'Valor Fatura': valorFatura,
-    'Valor Banco': valorBanco,
-    'Evento': evento,
-    'Forma de pagamento': formaPagamento,
-    'Parcela': parcela,
-    'Conta crédito': contaCredito,
-    'Observação': observacao,
-    'Código autorizador': codigoAutorizador,
-    'Número máquina POS': numeroMaquinaPos,
-  };
-}
-
-function createTdRow({
-  dataPagRps,
-  dataBanco,
-  atenRegistro,
-  contaFatura,
-  valorFatura,
-  valorBanco,
-  evento,
-  formaPagamento,
-  parcela,
-  contaCredito,
-  observacao,
-  autorizador,
-  numeroMaquinaPos,
-}) {
-  return {
-    'Data pag/RPS': dataPagRps,
-    'Data banco': dataBanco,
-    'Aten/Registro': atenRegistro,
-    'Conta/Fatura': contaFatura,
-    'Valor Fatura': valorFatura,
-    'Valor Banco': valorBanco,
-    'Evento': evento,
-    'Forma de Pagamento': formaPagamento,
-    'Parcela': parcela,
-    'Conta de Crédito': contaCredito,
-    'Observação': observacao,
-    'Autorizador': autorizador,
-    'Número máquina POS': numeroMaquinaPos,
-  };
+function buildTdRows(dadosFinal) {
+  return buildPaymentRows(dadosFinal, 'TD', r => r.valorCartao > 0 ? r.valorCartao : r.valorCielo || 0);
 }
 
 function downloadWorkbook(wb, filename) {
@@ -286,5 +228,6 @@ function downloadWorkbookWithBlob(wb, filename, options) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

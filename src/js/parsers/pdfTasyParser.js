@@ -1,52 +1,139 @@
+import { normalizeText } from '../utils/string.js';
 import {
-  createId,
   normalizeAuth,
   normalizeBrand,
   normalizePaymentMethod,
-  normalizeText,
+  normalizePdfBrand,
   parseMoneyBR,
 } from '../utils/format.js';
+import { deduplicateHospitalRows } from '../utils/dedupe.js';
+import { ID_PREFIX } from '../constants.js';
+import { createHospitalRow } from './_shared.js';
 
-/** Deduplica registros do PDF pelo autorizador + campos financeiros + bandeira/parcelas. */
-function deduplicatePdfRows(rows) {
-  const seen = new Map();
-  const result = [];
-  for (const row of rows) {
-    const key = [
-      row.autorizador,
-      row.valorCartao,
-      row.valorDinheiro,
-      row.valorFatura,
-      row.bandeira,
-      row.formaPagamento,
-      row.parcelas,
-      row.lote,
-      row.caixa,
-      row.dataPagamento,
-      row.horaPagamento,
-    ].join('|');
-    if (!seen.has(key)) {
-      seen.set(key, true);
-      result.push(row);
-    }
+const RECEIPT_CARD_RX = /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i;
+
+export const RECEIPT_ESPECIE_RX = /CX\s*-\s*Recebimento\s+Esp[eé]cie/i;
+
+const TOTAL_ROW_RX = /^total\(/i;
+const IGNORE_SUBSTRINGS = new Set([
+  'te - transferencia',
+  'total de documentos',
+  'impresso em',
+  'pagina:',
+  'rel:',
+  'desktop:',
+  'server:',
+  'saldo inicial',
+  'saldo final',
+]);
+
+let _pdfjsLib = null;
+let _pdfjsVersion = null;
+let _loadingPromise = null;
+
+const _isBrowser = typeof globalThis.location !== 'undefined';
+const PDFJS_PATH = _isBrowser ? '/src/vendor/pdf.min.mjs' : '../../vendor/pdf.min.mjs';
+const PDFJS_WORKER_PATH = _isBrowser ? '/src/vendor/pdf.worker.min.mjs' : '../../vendor/pdf.worker.min.mjs';
+
+const PDFJS_EXPECTED_HASH = 'c3caae2cf1fe9d6e25588d0d239d02454422778ed5897314981496a4656eab82';
+const PDFJS_WORKER_EXPECTED_HASH = 'ee61de6dd3effd826b7083739409e50bae43c2e41a896f27ea8dd2d77e2f349b';
+
+const MAX_PDF_PAGES = 2000;
+const PDF_TEXT_FETCH_TIMEOUT_MS = 10000;
+
+async function _verifyHash(url, expectedHash, label) {
+  const isBrowser = typeof globalThis.location !== 'undefined';
+  if (!isBrowser) return;
+
+  if (!expectedHash) {
+    throw new Error(`PDFJS ${label} hash expected but not configured — refusing to load.`);
   }
-  return result;
+
+  if (!globalThis.crypto?.subtle) {
+    console.warn(
+      `[pdfTasyParser] crypto.subtle indisponível neste contexto. ` +
+      `SRI de ${label} (${url}) pulado. Use HTTPS ou localhost para verificação de integridade.`,
+    );
+    return;
+  }
+
+  const response = await fetch(url, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`fetch(${url}) HTTP ${response.status}`);
+
+  const buffer = await response.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashHex = [...new Uint8Array(hashBuffer)]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+
+  if (hashHex !== expectedHash) {
+    throw new Error(
+      `SRI mismatch para ${url}: esperado ${expectedHash}, ` +
+      `obtido sha256-${hashHex}. Arquivo pode ter sido adulterado.`
+    );
+  }
+}
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout após ${ms}ms`)), ms)),
+  ]);
+}
+
+async function getPdfJs() {
+  if (_pdfjsLib) return _pdfjsLib;
+
+  if (_loadingPromise) return _loadingPromise;
+
+  _loadingPromise = (async () => {
+
+    await _verifyHash(PDFJS_PATH, PDFJS_EXPECTED_HASH, 'pdf.min.mjs');
+    await _verifyHash(PDFJS_WORKER_PATH, PDFJS_WORKER_EXPECTED_HASH, 'pdf.worker.min.mjs');
+    const pdfjsLib = await import(PDFJS_PATH);
+
+    if (typeof pdfjsLib.getDocument !== 'function' ||
+        !pdfjsLib.GlobalWorkerOptions ||
+        !pdfjsLib.version) {
+      throw new Error(
+        'Módulo pdf.min.mjs inválido ou corrompido: API esperada não encontrada. ' +
+        'Verifique se o arquivo em src/vendor/pdf.min.mjs é autêntico.'
+      );
+    }
+
+    _pdfjsVersion = pdfjsLib.version;
+    if (pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_PATH;
+    }
+    _pdfjsLib = pdfjsLib;
+    if (typeof location !== 'undefined' && location.hostname === 'localhost') {
+      console.info(`[pdfTasyParser] pdf.js v${_pdfjsVersion} loaded`);
+    }
+    return _pdfjsLib;
+  })();
+
+  return _loadingPromise;
 }
 
 export async function parseTasyPdf(file) {
-  if (!window.pdfjsLib) throw new Error('Biblioteca pdf.js não carregada.');
+  const pdfjsLib = await getPdfJs();
 
   const data = await file.arrayBuffer();
-  const pdf = await loadPdfDocument(data);
+  const pdf = await loadPdfDocument(pdfjsLib, data);
   const warnings = [];
   const rows = [];
   let ignoredLines = 0;
   let operador = '';
-  let currentDocumentInfo = { titulo: '', notaFiscal: '' };
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const textContent = await page.getTextContent();
+  let currentDocumentInfo = createDocumentTracker();
+
+  const pageLimit = Math.min(pdf.numPages, MAX_PDF_PAGES);
+  if (pdf.numPages > MAX_PDF_PAGES) {
+    warnings.push(`PDF com ${pdf.numPages} páginas excede limite de ${MAX_PDF_PAGES}. Apenas as primeiras ${MAX_PDF_PAGES} serão processadas.`);
+  }
+
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
+    const page = await withTimeout(pdf.getPage(pageNumber), PDF_TEXT_FETCH_TIMEOUT_MS, `getPage(${pageNumber})`);
+    const textContent = await withTimeout(page.getTextContent(), PDF_TEXT_FETCH_TIMEOUT_MS, `getTextContent(${pageNumber})`);
     const { lines } = groupPdfTextItems(textContent.items);
 
     for (let i = 0; i < lines.length; i++) {
@@ -56,11 +143,12 @@ export async function parseTasyPdf(file) {
       const opMatch = line.match(/^(.+?)\s+Dt\s+Saldo:/i);
       if (opMatch) operador = cleanOperatorName(opMatch[1]);
       const documentInfo = extractTasyDocumentInfo(line);
-      if (documentInfo.titulo || documentInfo.notaFiscal) currentDocumentInfo = documentInfo;
+      ingestDocumentInfo(currentDocumentInfo, documentInfo);
       if (shouldIgnorePdfLine(line)) { ignoredLines++; continue; }
 
       const directRows = extractTasyRowsFromLine(line, pageNumber, operador, currentDocumentInfo);
       if (directRows.length) {
+        consumeDocumentInfo(currentDocumentInfo);
         rows.push(...directRows);
         continue;
       }
@@ -72,7 +160,7 @@ export async function parseTasyPdf(file) {
       for (let j = i + 1; j < Math.min(lines.length, i + 9); j++) {
         const candidate = cleanLine(lines[j]);
         if (shouldIgnorePdfLine(candidate)) continue;
-        if (/CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i.test(candidate)) { valueLine = candidate; break; }
+        if (RECEIPT_CARD_RX.test(candidate)) { valueLine = candidate; break; }
         if (/Aut:\s*/i.test(candidate)) break;
       }
 
@@ -84,12 +172,13 @@ export async function parseTasyPdf(file) {
       const dateMatch = line.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})/) || valueLine.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})/);
       if (!dateMatch) { ignoredLines++; continue; }
 
-      const amount = extractReceiptAmount(valueLine, /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i);
+      const amount = extractReceiptAmount(valueLine, RECEIPT_CARD_RX);
       if (!amount) {
         warnings.push(`Página ${pageNumber}: não foi possível extrair valor da autorização ${authMatch.autorizador}.`);
         continue;
       }
 
+      consumeDocumentInfo(currentDocumentInfo);
       rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo: currentDocumentInfo }));
     }
 
@@ -97,25 +186,31 @@ export async function parseTasyPdf(file) {
   }
 
   if (!rows.length) throw new Error('Nenhuma transação válida foi encontrada no PDF.');
-  const deduplicated = deduplicatePdfRows(rows);
+  const deduplicated = deduplicateHospitalRows(rows);
   return { rows: deduplicated, warnings, ignoredLines, pagesRead: pdf.numPages, source: 'PDF_TASY' };
 }
 
-async function loadPdfDocument(data) {
+async function loadPdfDocument(pdfjsLib, data) {
+
+  const uint8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const loadingTask = pdfjsLib.getDocument({
+    data: uint8,
+    isEvalSupported: false,
+  });
   try {
-    return await getPdfDocument(data, false);
+    return await loadingTask.promise;
   } catch (error) {
     if (!isPdfWorkerLoadError(error)) throw error;
-    console.warn('Falha ao carregar worker do pdf.js; usando fallback sem worker.', error);
-    return getPdfDocument(data, true);
-  }
-}
 
-function getPdfDocument(data, disableWorker) {
-  return window.pdfjsLib.getDocument({
-    data: new Uint8Array(data.slice(0)),
-    disableWorker,
-  }).promise;
+    console.warn('[pdfTasyParser] Falha no worker; tentando sem worker.', error?.name || 'Error');
+    const fallbackTask = pdfjsLib.getDocument({
+      data: uint8,
+      isEvalSupported: false,
+      useWorkerFetch: false,
+      useSystemFonts: true,
+    });
+    return await fallbackTask.promise;
+  }
 }
 
 function isPdfWorkerLoadError(error) {
@@ -123,7 +218,12 @@ function isPdfWorkerLoadError(error) {
   return message.includes('Setting up fake worker failed')
     || message.includes('Cannot load script')
     || message.includes('Failed to construct')
-    || message.includes('Worker');
+    || message.includes('Worker')
+
+    || message.includes('DataCloneError')
+    || message.includes('structuredClone')
+    || message.includes('Cannot transfer object')
+    || message.includes('No "GlobalWorkerOptions.workerSrc"');
 }
 
 function groupPdfTextItems(items) {
@@ -136,12 +236,16 @@ function groupPdfTextItems(items) {
   const axis = dateItems.length >= 2 && spread(dateItems, 'x') > spread(dateItems, 'y') * 2 ? 'x' : 'y';
   const otherAxis = axis === 'x' ? 'y' : 'x';
   const tolerance = axis === 'x' ? 3 : 2;
-  const groups = [];
 
-  for (const item of parsed) {
-    let group = groups.find(existing => Math.abs(existing.axis - item[axis]) <= tolerance);
-    if (!group) { group = { axis: item[axis], items: [] }; groups.push(group); }
-    group.items.push(item);
+  const sortedByAxis = parsed.slice().sort((a, b) => a[axis] - b[axis]);
+  const groups = [];
+  for (const item of sortedByAxis) {
+    const last = groups[groups.length - 1];
+    if (last && Math.abs(last.axis - item[axis]) <= tolerance) {
+      last.items.push(item);
+    } else {
+      groups.push({ axis: item[axis], items: [item] });
+    }
   }
 
   const lines = groups
@@ -170,7 +274,7 @@ function isDocumentToken(token) {
 }
 
 function matchTasyAuthorization(line) {
-  const match = line.match(/Aut:\s*([A-Za-z0-9]+)\s*-\s*CV\/Doc:\s*-\s*(Cr[eé]dito|Credito|D[eé]bito|Debito)\s*-\s*(.*?)(?=\s+CX\s*-|\s+TE\s*-|\s+[\d.]+,\d{2}|$)/i);
+  const match = line.match(/Aut:\s*([A-Za-z0-9-]+)\s*-\s*CV\/Doc:\s*-\s*(Cr[eé]dito|Credito|D[eé]bito|Debito)\s*-\s*(.*?)(?=\s+CX\s*-|\s+TE\s*-|\s+[\d.]+,\d{2}|$)/i);
   if (!match) return null;
   return {
     autorizador: normalizeAuth(match[1]),
@@ -185,13 +289,13 @@ function extractTasyRowsFromLine(line, pageNumber, operador, documentInfo = { ti
 
   const rows = [];
   const authMatch = matchTasyAuthorization(line);
-  if (authMatch && /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i.test(line)) {
-    const amount = extractReceiptAmount(line, /CX\s*-\s*Recebimento\s+Cart[aã]o\s+de\s+(Cr[eé]dito|Credito|D[eé]bito|Debito)/i);
+  if (authMatch && RECEIPT_CARD_RX.test(line)) {
+    const amount = extractReceiptAmount(line, RECEIPT_CARD_RX);
     if (amount) rows.push(createPdfCardRow({ pageNumber, operador, line, valueLine: line, dateMatch, authMatch, amount, documentInfo }));
   }
 
-  if (/CX\s*-\s*Recebimento\s+Especie/i.test(line)) {
-    const amount = extractReceiptAmount(line, /CX\s*-\s*Recebimento\s+Especie/i);
+  if (RECEIPT_ESPECIE_RX.test(line)) {
+    const amount = extractReceiptAmount(line, RECEIPT_ESPECIE_RX);
     if (amount) rows.push(createPdfCashRow({ pageNumber, operador, line, dateMatch, amount, documentInfo }));
   }
 
@@ -207,64 +311,44 @@ function extractReceiptAmount(line, receiptRegex) {
 }
 
 function createPdfCardRow({ pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo = { titulo: '', notaFiscal: '' } }) {
-  const valorCartao = parseMoneyBR(amount);
-  return {
-    idInterno: createId('pdf-card', `${pageNumber}-${authMatch.autorizador}`),
-    origem: 'PDF_TASY',
-    dataPagamento: dateMatch[1],
-    horaPagamento: dateMatch[2],
-    registro: documentInfo.titulo || '',
-    caixa: operador,
-    lote: '',
-    contaFatura: documentInfo.notaFiscal || '',
-    autorizador: authMatch.autorizador,
-    valorCartao,
-    valorDinheiro: 0,
-    valorFatura: valorCartao,
-    desconto: '',
-    formaPagamento: authMatch.forma,
-    tipoCartao: authMatch.forma,
-    bandeira: authMatch.bandeira,
-    parcelas: '',
-    observacoes: ['Extraído do PDF Tasy'],
-    raw: { pageNumber, authLine: line, valueLine, documentInfo },
-  };
+  return createPdfRow({ type: 'card', pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo });
 }
 
 function createPdfCashRow({ pageNumber, operador, line, dateMatch, amount, documentInfo = { titulo: '', notaFiscal: '' } }) {
+  return createPdfRow({ type: 'cash', pageNumber, operador, line, dateMatch, amount, documentInfo });
+}
+
+function createPdfRow({ type, pageNumber, operador, line, valueLine, dateMatch, authMatch, amount, documentInfo = { titulo: '', notaFiscal: '' } }) {
   const valor = parseMoneyBR(amount);
-  return {
-    idInterno: createId('pdf-dinheiro', `${pageNumber}-${dateMatch[2]}`),
-    origem: 'PDF_TASY',
+  const isCard = type === 'card';
+  const idPrefix = isCard ? ID_PREFIX.PDF_CARD : ID_PREFIX.PDF_CASH;
+  const index = isCard ? `${pageNumber}-${authMatch.autorizador}` : `${pageNumber}-${dateMatch[2]}`;
+  const baseObs = isCard ? 'Extraído do PDF Tasy' : 'Recebimento em espécie extraído do PDF Tasy';
+  const raw = isCard ? { pageNumber, authLine: line, valueLine, documentInfo } : { pageNumber, line, documentInfo };
+
+  return createHospitalRow({
+    idPrefix,
+    index,
     dataPagamento: dateMatch[1],
     horaPagamento: dateMatch[2],
     registro: documentInfo.titulo || '',
     caixa: operador,
-    lote: '',
     contaFatura: documentInfo.notaFiscal || '',
-    autorizador: '',
-    valorCartao: 0,
-    valorDinheiro: valor,
+    autorizadorDoc: '',
+    ...(isCard ? {
+      autorizador: authMatch.autorizador,
+      valorCartao: valor,
+      formaPagamento: authMatch.forma,
+      tipoCartao: authMatch.forma,
+      bandeira: authMatch.bandeira,
+    } : {
+      valorDinheiro: valor,
+      formaPagamento: 'ESPÉCIE',
+    }),
     valorFatura: valor,
-    desconto: '',
-    formaPagamento: 'ESPÉCIE',
-    tipoCartao: '',
-    bandeira: '',
-    parcelas: '',
-    observacoes: ['Recebimento em espécie extraído do PDF Tasy'],
-    raw: { pageNumber, line, documentInfo },
-  };
-}
-
-function normalizePdfBrand(value) {
-  const text = String(value || '').replace(/-+\s*$/, '').trim();
-  const normalized = normalizeText(text);
-  if (normalized.includes('american express')) return 'AMERICAN EXPRESS';
-  if (normalized.includes('master')) return 'MASTERCARD';
-  if (normalized.includes('visa')) return 'VISA';
-  if (normalized.includes('elo')) return 'ELO';
-  if (normalized.includes('hiper')) return 'HIPERCARD';
-  return normalizeBrand(text.split(' - ')[0]);
+    observacoes: [baseObs],
+    raw,
+  });
 }
 
 function cleanOperatorName(value) {
@@ -277,15 +361,28 @@ function cleanLine(line) {
 
 function shouldIgnorePdfLine(line) {
   const n = normalizeText(line);
-  return !n
-    || n.includes('te - transferencia')
-    || n.includes('total de documentos')
-    || /^total\(/.test(n)
-    || n.includes('impresso em')
-    || n.includes('pagina:')
-    || n.includes('rel:')
-    || n.includes('desktop:')
-    || n.includes('server:')
-    || n.includes('saldo inicial')
-    || n.includes('saldo final');
+  if (!n) return true;
+  for (const substr of IGNORE_SUBSTRINGS) {
+    if (n.includes(substr)) return true;
+  }
+  return TOTAL_ROW_RX.test(n);
+}
+
+export function createDocumentTracker() {
+  return { titulo: '', notaFiscal: '', consumed: true };
+}
+
+export function ingestDocumentInfo(tracker, incoming) {
+  if (incoming?.titulo || incoming?.notaFiscal) {
+    tracker.titulo = incoming.titulo || '';
+    tracker.notaFiscal = incoming.notaFiscal || '';
+    tracker.consumed = false;
+  }
+  return tracker;
+}
+
+export function consumeDocumentInfo(tracker) {
+  if (tracker.consumed) return { titulo: '', notaFiscal: '' };
+  tracker.consumed = true;
+  return tracker;
 }

@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, KAN-02]
+  pull_request:
+    branches: [main, KAN-02]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify LF normalization
+        run: |
+          if git diff --check --exit-code; then
+            echo "✓ Working tree is clean (LF normalized)"
+          else
+            echo "✗ Mixed line endings detected"
+            git diff --check
+            exit 1
+          fi

@@ -1,5 +1,8 @@
-# Artefatos e configurações locais de IA/agentes
 .gsd/
+.gsd-id
+node_modules
+NUL
+nul
 .bg-shell/
 .claude/
 .cursor/
@@ -12,9 +15,5 @@
 *.ai.md
 *.llm.md
 .artifacts
-
-# Documentação local gerada/fornecida fora do versionamento
-docs/
-@docs/
-
+debug/
 .mcp.json

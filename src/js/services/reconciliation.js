@@ -1,16 +1,63 @@
-export function reconcileRows(hospitalRows, cieloRows) {
-  const cieloIndex = buildCieloIndex(cieloRows);
+import { STATUS_LABEL, hasBlockingStatus, containsBlockingKeyword, isCorrigido } from './paymentPredicates.js';
+import { normalizeAuth, parseMoneyBR } from '../utils/format.js';
+
+const EPSILON = 0.01;
+
+function _buildCieloIndex(cieloRows, extraFilter) {
+  return cieloRows.reduce((map, sale) => {
+    if (!sale.autorizador) return map;
+    const key = normalizeAuth(sale.autorizador);
+    if (!key) return map;
+    if (extraFilter && !extraFilter(sale)) return map;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(sale);
+    return map;
+  }, new Map());
+}
+
+export function buildCieloIndexWithDedup(cieloRows) {
+  const seen = new Set();
+  let duplicatesRemoved = 0;
+  const index = _buildCieloIndex(cieloRows, sale => {
+    const key = normalizeAuth(sale.autorizador);
+    if (!key) return false;
+    const dedupeKey = `${key}|${sale.valorBruto ?? ''}|${sale.dataVenda ?? ''}|${sale.nsu ?? ''}`;
+    if (seen.has(dedupeKey)) {
+      duplicatesRemoved++;
+      return false;
+    }
+    seen.add(dedupeKey);
+    return true;
+  });
+  return { index, duplicatesRemoved };
+}
+
+export function reconcileRows(hospitalRows, cieloIndex, duplicateAutorizadores) {
+
   const matchedCieloIds = new Set();
+  const dupes = duplicateAutorizadores instanceof Set ? duplicateAutorizadores : new Set();
 
   const hospitalResults = hospitalRows.map(row => {
-    const result = reconcileOne(row, cieloIndex);
+    const result = reconcileOne(row, cieloIndex, matchedCieloIds, dupes);
     if (result.cielo?.idInterno) {
+
       matchedCieloIds.add(result.cielo.idInterno);
+    }
+
+    if (result.ambiguousCandidates?.length) {
+      for (const c of result.ambiguousCandidates) {
+        matchedCieloIds.add(c.idInterno);
+      }
     }
     return result;
   });
 
-  const cieloOnlyRows = cieloRows
+  const allCieloRows = [];
+  for (const sales of cieloIndex.values()) {
+    allCieloRows.push(...sales);
+  }
+
+  const cieloOnlyRows = allCieloRows
     .filter(sale => !matchedCieloIds.has(sale.idInterno))
     .map(sale => ({
       idInterno: sale.idInterno,
@@ -27,12 +74,12 @@ export function reconcileRows(hospitalRows, cieloRows) {
       parcelas: sale.parcelas || '',
       numeroMaquina: sale.numeroMaquina || '',
       status: ['Não encontrado no sistema'],
-      statusLabel: 'Cielo sem correspondência',
+      statusLabel: STATUS_LABEL.NAO_ENCONTRADO_CIELO,
       cielo: sale,
       valorCielo: sale.valorBruto || 0,
       diferenca: 0,
       observacoes: [],
-      _cieloOnly: true,
+      cieloOnly: true,
       dataVenda: sale.dataVenda || '',
       horaVenda: sale.horaVenda || '',
       nsu: sale.nsu || '',
@@ -42,7 +89,7 @@ export function reconcileRows(hospitalRows, cieloRows) {
   return [...hospitalResults, ...cieloOnlyRows];
 }
 
-export function reconcileOne(row, cieloIndex) {
+export function reconcileOne(row, cieloIndex, matchedCieloIds = new Set(), duplicateAutorizadores) {
   const result = {
     ...row,
     status: [],
@@ -52,6 +99,8 @@ export function reconcileOne(row, cieloIndex) {
     diferenca: 0,
     numeroMaquina: row.numeroMaquina || '',
     observacoes: row.observacoes ? [...row.observacoes] : [],
+
+    ambiguousCandidates: [],
   };
 
   if (result.valorCartao <= 0 && result.valorDinheiro <= 0 && hasFinancialReference(result)) {
@@ -62,12 +111,20 @@ export function reconcileOne(row, cieloIndex) {
     if (!result.autorizador) {
       result.status.push('Sem autorizador');
     } else {
-      const { sale, ambiguous } = pickCieloSale(result, cieloIndex);
+      const allowReuse = duplicateAutorizadores instanceof Set
+        && result.autorizador
+        && duplicateAutorizadores.has(result.autorizador);
+      const { sale, ambiguous, candidates } = pickCieloSale(result, cieloIndex, matchedCieloIds, allowReuse);
       if (ambiguous && !sale) {
         result.status.push('Pendente revisão');
+
+        result.ambiguousCandidates = candidates || [];
+        if (allowReuse) result.status.push('Auth duplicado');
       } else if (!sale) {
         result.status.push('Não encontrado na Cielo');
+        if (allowReuse) result.status.push('Auth duplicado');
       } else {
+        if (allowReuse) result.status.push('Auth duplicado');
         result.cielo = sale;
         result.valorCielo = sale.valorBruto || 0;
         result.diferenca = Number(((result.valorCartao || 0) - result.valorCielo).toFixed(2));
@@ -76,120 +133,103 @@ export function reconcileOne(row, cieloIndex) {
         result.formaPagamento = result.formaPagamento || sale.formaPagamento || '';
         result.numeroMaquina = result.numeroMaquina || sale.numeroMaquina || '';
 
-        if (ambiguous) result.status.push('Pendente revisão');
-        if (Math.abs(result.diferenca) > 0.01) result.status.push('Divergência valor cartão');
+        if (Math.abs(result.diferenca) > EPSILON) result.status.push('Divergência valor cartão');
         else result.status.push('Conciliado');
       }
     }
   }
 
   if (result.valorDinheiro > 0) {
-    if (result.valorCartao <= 0) result.formaPagamento = 'ESPÉCIE';
+    if (result.valorCartao <= 0 && !result.formaPagamento) result.formaPagamento = 'ESPÉCIE';
     if (result.valorCartao > 0) {
       result.status.push('Pagamento misto');
-      if (result.valorFatura > 0 && Math.abs((result.valorCartao + result.valorDinheiro) - result.valorFatura) > 0.01) {
+      if (result.valorFatura > 0 && Math.abs((result.valorCartao + result.valorDinheiro) - result.valorFatura) > EPSILON) {
+
+        const descontoNum = parseMoneyBR(result.desconto);
+        const correctedDiff = Math.abs(
+          result.valorCartao + result.valorDinheiro + descontoNum - (result.valorFatura || 0)
+        );
+        if (correctedDiff > EPSILON) {
+          result.status.push('Dinheiro Diferença');
+        }
+      }
+    } else if (Math.abs(result.valorDinheiro - result.valorFatura) > EPSILON) {
+
+      const descontoNum = parseMoneyBR(result.desconto);
+
+      const discountDiff = Math.abs(result.valorDinheiro + descontoNum - (result.valorFatura || 0));
+      if (discountDiff > EPSILON) {
         result.status.push('Dinheiro Diferença');
       }
-    } else if (Math.abs(result.valorDinheiro - result.valorFatura) > 0.01) {
-      result.status.push('Dinheiro Diferença');
+      result.status.push('Dinheiro');
     } else {
       result.status.push('Dinheiro');
     }
   }
 
-  if (!result.status.length) result.status.push('Conciliado');
-  result.status = [...new Set(result.status)];
+  if (!result.status.length) result.status.push(STATUS_LABEL.CONCILIADO);
+  result.status = _dedupeStatus(result.status);
   if (result.desconto) result.observacoes.push(result.desconto);
   result.observacoes = [...new Set(result.observacoes.filter(Boolean))];
 
-  if (row.corrigido === true) {
-    const filtered = result.status.filter(s =>
-      !s.includes('Divergência') && !s.includes('Diferença')
-      && !s.includes('Não encontrado') && !s.includes('Pendente')
-      && !s.includes('Sem autorizador') && !s.includes('Sem valor')
-      && s !== 'À Conciliar'
-    );
-    result.status = filtered.length ? [...filtered, 'Corrigido'] : ['Corrigido'];
-  } else if (result.valorDinheiro > 0) {
-    const hasDivergence = result.status.some(s =>
-      s.includes('Divergência') || s.includes('Diferença')
-      || s.includes('Não encontrado') || s.includes('Pendente')
-      || s.includes('Sem autorizador') || s.includes('Sem valor')
-    );
-    if (!hasDivergence) result.status.push('À Conciliar');
+  if (isCorrigido(row)) {
+    const filtered = result.status.filter(s => !containsBlockingKeyword(s) && s !== 'À Conciliar');
+    result.status = filtered.length ? [...filtered, STATUS_LABEL.CORRIGIDO] : [STATUS_LABEL.CORRIGIDO];
+  } else if (result.valorDinheiro > 0 && !hasBlockingStatus(result)) {
+    result.status.push('À Conciliar');
   }
 
-  result.status = [...new Set(result.status)];
+  result.status = _dedupeStatus(result.status);
   result.statusLabel = getStatusLabel(result.status);
   return result;
-}
-
-export function buildCieloIndex(cieloRows) {
-  const map = new Map();
-  for (const sale of cieloRows) {
-    if (!sale.autorizador) continue;
-    if (!map.has(sale.autorizador)) map.set(sale.autorizador, []);
-    map.get(sale.autorizador).push(sale);
-  }
-  return map;
-}
-
-/** Deduplica vendas da Cielo entre múltiplos arquivos pela chave canônica.
- *  Se o mesmo autorizador aparece em arquivos diferentes com valores diferentes,
- *  mantém todos para que a conciliação encontre matches exatos. */
-export function deduplicateCieloCrossFile(cieloRows) {
-  const seen = new Map();
-  const result = [];
-  for (const sale of cieloRows) {
-    const key = [
-      sale.autorizador,
-      sale.valorBruto,
-      sale.bandeira,
-      sale.formaPagamento,
-      sale.parcelas,
-      sale.dataVenda,
-      sale.horaVenda,
-      sale.nsu,
-      sale.numeroMaquina,
-    ].join('|');
-    if (!seen.has(key)) {
-      seen.set(key, true);
-      result.push(sale);
-    }
-  }
-  return result;
-}
-
-export function isOkRow(row) {
-  if (row.corrigido === true) return true;
-  return row.statusLabel === 'Conciliado'
-    && !row.status.some(s => s.includes('Divergência') || s.includes('Diferença') || s.includes('Pendente') || s.includes('Não encontrado') || s.includes('Sem autorizador') || s.includes('Sem valor'));
 }
 
 function hasFinancialReference(row) {
   return (row.valorFatura || 0) > 0
     || Boolean(row.registro)
-    || Boolean(row.contaFatura)
-    || Boolean(row.autorizador);
+    || Boolean(row.contaFatura);
 }
 
-function pickCieloSale(hospitalRow, cieloIndex) {
-  const matches = cieloIndex.get(hospitalRow.autorizador) || [];
-  if (!matches.length) return { sale: null, ambiguous: false, candidates: [] };
+function pickCieloSale(hospitalRow, cieloIndex, matchedCieloIds = new Set(), allowReuse = false) {
+  const authKey = normalizeAuth(hospitalRow.autorizador);
+  const allMatches = cieloIndex.get(authKey);
+  if (!allMatches?.length) return { sale: null, ambiguous: false, candidates: [] };
 
-  const exact = matches.filter(sale => Math.abs((hospitalRow.valorCartao || 0) - (sale.valorBruto || 0)) <= 0.01);
-  if (exact.length === 1) return { sale: exact[0], ambiguous: false, candidates: exact };
+  let exact = null;
+  let exactCount = 0;
+  const matches = [];
+  const exactSales = [];
+  const targetValue = hospitalRow.valorCartao || 0;
+
+  for (const sale of allMatches) {
+    if (!allowReuse && matchedCieloIds.has(sale.idInterno)) continue;
+    matches.push(sale);
+
+    const isExact = Math.abs(targetValue - (sale.valorBruto || 0)) <= EPSILON;
+    if (isExact) {
+      exact = sale;
+      exactCount++;
+      exactSales.push(sale);
+    }
+  }
+
+  if (!matches.length) return { sale: null, ambiguous: false, candidates: [] };
+  if (exactCount === 1) return { sale: exact, ambiguous: false, candidates: matches };
   if (matches.length === 1) return { sale: matches[0], ambiguous: false, candidates: matches };
 
-  return { sale: null, ambiguous: true, candidates: exact.length ? exact : matches };
+  return { sale: null, ambiguous: true, candidates: exactCount > 0 ? exactSales : matches };
 }
 
 function getStatusLabel(status) {
-  if (status.includes('Corrigido')) return 'Corrigido';
-  if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return 'Divergente';
-  if (status.includes('Não encontrado na Cielo') || status.includes('Não encontrado')) return 'Não encontrado';
-  if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return 'Pendente';
-  if (status.includes('Dinheiro')) return 'Dinheiro';
-  if (status.includes('Pagamento misto')) return 'Pagamento misto';
-  return 'Conciliado';
+  if (status.includes(STATUS_LABEL.CORRIGIDO)) return STATUS_LABEL.CORRIGIDO;
+  if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return STATUS_LABEL.DIVERGENTE;
+  if (status.some(s => s.includes(STATUS_LABEL.NAO_ENCONTRADO))) return STATUS_LABEL.NAO_ENCONTRADO;
+  if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return STATUS_LABEL.PENDENTE;
+  if (status.includes(STATUS_LABEL.DINHEIRO)) return STATUS_LABEL.DINHEIRO;
+  if (status.includes(STATUS_LABEL.PAGAMENTO_MISTO)) return STATUS_LABEL.PAGAMENTO_MISTO;
+  return STATUS_LABEL.CONCILIADO;
+}
+
+function _dedupeStatus(status) {
+  return [...new Set(status)];
 }
