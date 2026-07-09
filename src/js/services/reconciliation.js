@@ -133,8 +133,14 @@ export function reconcileOne(row, cieloIndex, matchedCieloIds = new Set(), dupli
         result.formaPagamento = result.formaPagamento || sale.formaPagamento || '';
         result.numeroMaquina = result.numeroMaquina || sale.numeroMaquina || '';
 
-        if (Math.abs(result.diferenca) > EPSILON) result.status.push('Divergência valor cartão');
-        else result.status.push('Conciliado');
+        // Auth duplicado (allowReuse): a venda Cielo é compartilhada entre
+        // várias rows hospitalares. A "diferença de valor" não é uma divergência
+        // de cartão de verdade — é esperada. Não marca "Divergência valor cartão".
+        if (Math.abs(result.diferenca) > EPSILON) {
+          if (!allowReuse) result.status.push('Divergência valor cartão');
+        } else {
+          result.status.push('Conciliado');
+        }
       }
     }
   }
@@ -223,8 +229,9 @@ function pickCieloSale(hospitalRow, cieloIndex, matchedCieloIds = new Set(), all
 function getStatusLabel(status) {
   if (status.includes(STATUS_LABEL.CORRIGIDO)) return STATUS_LABEL.CORRIGIDO;
   if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return STATUS_LABEL.DIVERGENTE;
+  if (status.includes('Sem autorizador')) return STATUS_LABEL.DIVERGENTE;
   if (status.some(s => s.includes(STATUS_LABEL.NAO_ENCONTRADO))) return STATUS_LABEL.NAO_ENCONTRADO;
-  if (status.includes('Sem autorizador') || status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return STATUS_LABEL.PENDENTE;
+  if (status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return STATUS_LABEL.PENDENTE;
   if (status.includes(STATUS_LABEL.DINHEIRO)) return STATUS_LABEL.DINHEIRO;
   if (status.includes(STATUS_LABEL.PAGAMENTO_MISTO)) return STATUS_LABEL.PAGAMENTO_MISTO;
   return STATUS_LABEL.CONCILIADO;

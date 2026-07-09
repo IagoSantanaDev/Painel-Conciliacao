@@ -204,3 +204,53 @@ export function normalizePdfBrand(value) {
   if (normalized.includes('hiper')) return 'HIPERCARD';
   return normalizeBrand(text.split(' - ')[0]);
 }
+
+// Força formato canônico brasileiro dd/mm/yyyy para qualquer string de data
+// que chegue em variantes conhecidas. Entrada esperada: BI/MV e Cielo entregam
+// em formato BR (dd/mm/yyyy) — esta função padroniza e devolve texto. Tem
+// fallback automático para formato americano (mm/dd/yyyy) caso o BR falhe:
+// se a tentativa BR retornar mês inválido (>12), tenta a leitura invertida.
+export function normalizeDateBR(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const str = String(value).trim();
+
+  // Tenta BR (dd/mm/yyyy) e US (mm/dd/yyyy) — ambos com 4 dígitos no ano.
+  let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const [, a, b, yyyy] = m;
+    const brDay = Number(a), brMonth = Number(b);
+    if (brDay >= 1 && brDay <= 31 && brMonth >= 1 && brMonth <= 12) {
+      return `${a.padStart(2, '0')}/${b.padStart(2, '0')}/${yyyy}`;
+    }
+    const usDay = Number(b), usMonth = Number(a);
+    if (usDay >= 1 && usDay <= 31 && usMonth >= 1 && usMonth <= 12) {
+      return `${b.padStart(2, '0')}/${a.padStart(2, '0')}/${yyyy}`;
+    }
+  }
+
+  // Tenta BR (dd/mm/yy) e US (mm/dd/yy) — ano de 2 dígitos.
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (m) {
+    const [, a, b, yy] = m;
+    const brDay = Number(a), brMonth = Number(b);
+    if (brDay >= 1 && brDay <= 31 && brMonth >= 1 && brMonth <= 12) {
+      const yyyy = (Number(yy) <= 69 ? '20' : '19') + yy;
+      return `${a.padStart(2, '0')}/${b.padStart(2, '0')}/${yyyy}`;
+    }
+    const usDay = Number(b), usMonth = Number(a);
+    if (usDay >= 1 && usDay <= 31 && usMonth >= 1 && usMonth <= 12) {
+      const yyyy = (Number(yy) <= 69 ? '20' : '19') + yy;
+      return `${b.padStart(2, '0')}/${a.padStart(2, '0')}/${yyyy}`;
+    }
+  }
+
+  // ISO yyyy-mm-dd
+  m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const [, yyyy, mm, dd] = m;
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  // Sem matches: devolve input original (caller decide)
+  return str;
+}

@@ -306,7 +306,11 @@ export function renderTableRow(row, index, duplicateAutorizadores) {
   const effectiveRow = getEffectiveRow(row, duplicateAutorizadores);
   let rowClass = '';
   if (isCorrigido(effectiveRow)) rowClass = 'row-corrigido';
-  else if (effectiveRow.statusLabel === STATUS_LABEL.DIVERGENTE || effectiveRow.statusLabel === STATUS_LABEL.NAO_ENCONTRADO || isCieloOnly(effectiveRow)) rowClass = 'row-error';
+  else if (isCieloOnly(effectiveRow)) rowClass = 'row-error';
+  else if (effectiveRow.statusLabel === STATUS_LABEL.NAO_ENCONTRADO) rowClass = 'row-error';
+  // "Sem autorizador" cai em DIVERGENTE mas não recebe coloração de fundo —
+  // vai para a aba Divergentes no export e fica visualmente neutro na tabela.
+  else if (effectiveRow.statusLabel === STATUS_LABEL.DIVERGENTE && !(effectiveRow.status || []).includes('Sem autorizador')) rowClass = 'row-error';
   else if (effectiveRow.statusLabel === STATUS_LABEL.PENDENTE) rowClass = 'row-alert';
 
   return `<tr data-idx="${String(index)}" class="${rowClass}">

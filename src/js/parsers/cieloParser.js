@@ -7,6 +7,7 @@ import {
   getValue,
   normalizeAuth,
   normalizeBrand,
+  normalizeDateBR,
   normalizePaymentMethod,
 } from '../utils/format.js';
 import { parseSpreadsheet } from './_shared.js';
@@ -47,9 +48,9 @@ function mapCieloRow(row, index, norm) {
     bandeira: normalizeBrand(getValue(row, ['bandeira'], norm)),
     formaPagamento: normalizePaymentMethod(getValue(row, ['formaPagamento'], norm)),
     parcelas: getCieloInstallments(row, norm),
-    dataVenda: getString(row, ['dataVenda'], norm),
+    dataVenda: normalizeDateBR(getString(row, ['dataVenda'], norm)),
     horaVenda: getString(row, ['horaVenda'], norm),
-    dataPrevistaPagamento: getString(row, ['dataPrevistaPagamento'], norm),
+    dataPrevistaPagamento: normalizeDateBR(getString(row, ['dataPrevistaPagamento'], norm)),
     nsu: getString(row, ['nsu'], norm),
     numeroMaquina: getString(row, ['numeroMaquina'], norm),
     raw: row,

@@ -9,6 +9,7 @@ import {
   normalizeAuth,
   normalizeBrand,
   normalizeCardType,
+  normalizeDateBR,
   normalizePaymentMethod,
 } from '../utils/format.js';
 import { createHospitalRow, parseSpreadsheet } from './_shared.js';
@@ -49,7 +50,7 @@ function mapBiRow(row, index, norm) {
   return createHospitalRow({
     idPrefix: ID_PREFIX.BI,
     index,
-    dataPagamento: getString(row, ['dataPagamento'], norm),
+    dataPagamento: normalizeDateBR(getString(row, ['dataPagamento'], norm)),
     registro,
     caixa: getString(row, ['caixa'], norm),
     lote: getString(row, ['lote'], norm),
