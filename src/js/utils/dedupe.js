@@ -57,6 +57,7 @@ export function deduplicateCrossSourceRows(rows) {
 export function findDuplicateAutorizadores(rows) {
   const counts = new Map();
   for (const row of rows) {
+    if (row?.cieloOnly) continue;
     const auth = String(row?.autorizador ?? '').trim();
     if (!auth) continue;
     counts.set(auth, (counts.get(auth) || 0) + 1);

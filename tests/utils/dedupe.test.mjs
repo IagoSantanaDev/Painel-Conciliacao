@@ -56,4 +56,25 @@ describe('findDuplicateAutorizadores', () => {
     ];
     assert.deepStrictEqual([...findDuplicateAutorizadores(rows)], []);
   });
+
+  it('BUGFIX: ignora rows Cielo-only — não inflarem o set com autorizadores exclusivos do Cielo', () => {
+    const rows = [
+      { autorizador: 'A1' },
+      { autorizador: 'B2', cieloOnly: true },
+      { autorizador: 'B2', cieloOnly: true },
+      { autorizador: 'C3' },
+    ];
+    // B2 só aparece 2x em rows Cielo-only. Não deve ser marcado como duplicado,
+    // pois a duplicação entre Cielo rows não aciona `allowReuse` em rows hospitalares.
+    assert.deepStrictEqual([...findDuplicateAutorizadores(rows)], []);
+  });
+
+  it('BUGFIX: rows Cielo-only com autorizador vazio não geram falso positivo', () => {
+    const rows = [
+      { autorizador: 'A1' },
+      { autorizador: '—', cieloOnly: true },
+      { autorizador: '—', cieloOnly: true },
+    ];
+    assert.deepStrictEqual([...findDuplicateAutorizadores(rows)], []);
+  });
 });
