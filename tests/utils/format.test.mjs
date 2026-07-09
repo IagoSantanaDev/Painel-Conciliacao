@@ -4,6 +4,7 @@ import {
   parseMoneyBR,
   parseMoneyBRStrict,
   normalizeAuth,
+  normalizeDateBR,
 } from '../../src/js/utils/format.js';
 
 describe('parseMoneyBR', () => {
@@ -232,6 +233,51 @@ describe('normalizeAuth', () => {
 
   it('normalizeAuth("[1]") → "" (brackets)', () => {
     assert.strictEqual(normalizeAuth('[1]'), '');
+  });
+
+});
+
+describe('normalizeDateBR', () => {
+
+  it('mantém dd/mm/yyyy canônico', () => {
+    assert.strictEqual(normalizeDateBR('07/06/2026'), '07/06/2026');
+  });
+
+  it('padStart zeros à esquerda em d/m/yyyy', () => {
+    assert.strictEqual(normalizeDateBR('7/6/2026'), '07/06/2026');
+  });
+
+  it('converte dd/mm/yy para dd/mm/20yy (ano <= 69)', () => {
+    assert.strictEqual(normalizeDateBR('18/06/26'), '18/06/2026');
+  });
+
+  it('converte dd/mm/yy para dd/mm/19yy (ano >= 70)', () => {
+    assert.strictEqual(normalizeDateBR('18/06/85'), '18/06/1985');
+  });
+
+  it('converte ISO yyyy-mm-dd para dd/mm/yyyy', () => {
+    assert.strictEqual(normalizeDateBR('2026-06-07'), '07/06/2026');
+  });
+
+  it('devolve string vazia para null/undefined/vazio', () => {
+    assert.strictEqual(normalizeDateBR(null), '');
+    assert.strictEqual(normalizeDateBR(undefined), '');
+    assert.strictEqual(normalizeDateBR(''), '');
+  });
+
+  it('valor que não casa nenhum padrão é devolvido como input', () => {
+    assert.strictEqual(normalizeDateBR('ontem'), 'ontem');
+  });
+
+  it('fallback US m/d/yy quando BR falha (mês > 12)', () => {
+    // Planilhas BI/MV antigas guardam células em formato americano. O parser
+    // precisa normalizar pra dd/mm/yyyy canônico mesmo assim.
+    assert.strictEqual(normalizeDateBR('6/30/26'), '30/06/2026');
+    assert.strictEqual(normalizeDateBR('12/31/26'), '31/12/2026');
+  });
+
+  it('fallback US m/d/yyyy quando BR falha (mês > 12, ano 4 dígitos)', () => {
+    assert.strictEqual(normalizeDateBR('6/30/2026'), '30/06/2026');
   });
 
 });
