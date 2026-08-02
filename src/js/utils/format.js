@@ -116,6 +116,7 @@ export const HEADER_ALIASES = Object.freeze({
   valorBruto: ['Valor bruto', 'Valor'],
   dataPagamento: ['Data Pagamento'],
   registro: ['Número Registro', 'Numero Registro'],
+  atendimento: ['Número Atendimento', 'Numero Atendimento', 'Atendimento', 'Número Registro', 'Numero Registro'],
   caixa: ['Caixa'],
   lote: ['Lote'],
   contaFaturaRps: _CONTA_FATURA_RPS,
@@ -207,41 +208,35 @@ export function normalizePdfBrand(value) {
 
 // Força formato canônico brasileiro dd/mm/yyyy para qualquer string de data
 // que chegue em variantes conhecidas. Entrada esperada: BI/MV e Cielo entregam
-// em formato BR (dd/mm/yyyy) — esta função padroniza e devolve texto. Tem
-// fallback automático para formato americano (mm/dd/yyyy) caso o BR falhe:
-// se a tentativa BR retornar mês inválido (>12), tenta a leitura invertida.
+// em formato BR (dd/mm/yyyy) — esta função padroniza e devolve texto.
+// Apenas formato brasileiro (dd/mm/yyyy) é aceito; formatos ambíguos
+// como mm/dd/yyyy são rejeitados (retornam vazio) para evitar inversão silenciosa.
 export function normalizeDateBR(value) {
   if (value === null || value === undefined || value === '') return '';
   const str = String(value).trim();
 
-  // Tenta BR (dd/mm/yyyy) e US (mm/dd/yyyy) — ambos com 4 dígitos no ano.
+  // dd/mm/yyyy com 4 dígitos no ano
   let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const [, a, b, yyyy] = m;
-    const brDay = Number(a), brMonth = Number(b);
-    if (brDay >= 1 && brDay <= 31 && brMonth >= 1 && brMonth <= 12) {
+    const day = Number(a), month = Number(b);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
       return `${a.padStart(2, '0')}/${b.padStart(2, '0')}/${yyyy}`;
     }
-    const usDay = Number(b), usMonth = Number(a);
-    if (usDay >= 1 && usDay <= 31 && usMonth >= 1 && usMonth <= 12) {
-      return `${b.padStart(2, '0')}/${a.padStart(2, '0')}/${yyyy}`;
-    }
+    // Mês > 12 indica formato não-BR (ex: mm/dd/yyyy). Rejeitado.
+    return '';
   }
 
-  // Tenta BR (dd/mm/yy) e US (mm/dd/yy) — ano de 2 dígitos.
+  // dd/mm/yy com ano de 2 dígitos
   m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
   if (m) {
     const [, a, b, yy] = m;
-    const brDay = Number(a), brMonth = Number(b);
-    if (brDay >= 1 && brDay <= 31 && brMonth >= 1 && brMonth <= 12) {
+    const day = Number(a), month = Number(b);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
       const yyyy = (Number(yy) <= 69 ? '20' : '19') + yy;
       return `${a.padStart(2, '0')}/${b.padStart(2, '0')}/${yyyy}`;
     }
-    const usDay = Number(b), usMonth = Number(a);
-    if (usDay >= 1 && usDay <= 31 && usMonth >= 1 && usMonth <= 12) {
-      const yyyy = (Number(yy) <= 69 ? '20' : '19') + yy;
-      return `${b.padStart(2, '0')}/${a.padStart(2, '0')}/${yyyy}`;
-    }
+    return '';
   }
 
   // ISO yyyy-mm-dd

@@ -269,15 +269,15 @@ describe('normalizeDateBR', () => {
     assert.strictEqual(normalizeDateBR('ontem'), 'ontem');
   });
 
-  it('fallback US m/d/yy quando BR falha (mês > 12)', () => {
-    // Planilhas BI/MV antigas guardam células em formato americano. O parser
-    // precisa normalizar pra dd/mm/yyyy canônico mesmo assim.
-    assert.strictEqual(normalizeDateBR('6/30/26'), '30/06/2026');
-    assert.strictEqual(normalizeDateBR('12/31/26'), '31/12/2026');
+  it('rejeita formato US m/d/yy (mês > 12) sem fallback', () => {
+    // Formato não-BR é rejeitado: o sistema espera dd/mm/yyyy.
+    // Inversão silenciosa de dia/mês é pior que data vazia.
+    assert.strictEqual(normalizeDateBR('6/30/26'), '');
+    assert.strictEqual(normalizeDateBR('12/31/26'), '');
   });
 
-  it('fallback US m/d/yyyy quando BR falha (mês > 12, ano 4 dígitos)', () => {
-    assert.strictEqual(normalizeDateBR('6/30/2026'), '30/06/2026');
+  it('rejeita formato US m/d/yyyy (mês > 12) sem fallback', () => {
+    assert.strictEqual(normalizeDateBR('6/30/2026'), '');
   });
 
 });

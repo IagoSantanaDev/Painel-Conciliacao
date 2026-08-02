@@ -634,9 +634,9 @@ describe('S02: buildTasyCieloRows — dataBanco e Observação', () => {
     assert.strictEqual(dataRpsCell.v, '', 'data vazia continua vazia');
   });
 
-  it('T04d: fallback US (m/d/yy) quando o formato BR falha (mês > 12)', () => {
-    // Planilhas BI/MV antigas guardam células de data como 'm/d/yy' (US). O
-    // usuário não deve perder essas datas — aplicamos fallback automático.
+  it('T04d: formato US (m/d/yy) é rejeitado — data não vira serial', () => {
+    // Formato não-BR não é convertido. Inversão silenciosa é pior que
+    // data não reconhecida.
     exportTd([{
       registro: 'REG105',
       dataPagamento: '6/30/26',
@@ -648,11 +648,9 @@ describe('S02: buildTasyCieloRows — dataBanco e Observação', () => {
     const appendedSheets = mockXLSX.utils.book_append_sheet.mock.calls;
     const sheet = appendedSheets[appendedSheets.length - 1].arguments[1];
     const dataRpsCell = sheet['A2'];
-    // 6/30/26 como US → 30 de junho de 2026
-    const expected = Math.floor((Date.UTC(2026, 5, 30) - Date.UTC(1899, 11, 30)) / 86400000);
-    assert.strictEqual(dataRpsCell.t, 'n', 'célula de data deve virar numérica via fallback US');
-    assert.strictEqual(dataRpsCell.z, 'dd/mm/yyyy');
-    assert.strictEqual(dataRpsCell.v, expected);
+    // 6/30/26 não é BR válido → permanece como string original
+    assert.strictEqual(dataRpsCell.t, 's', 'célula de data US rejeitada deve permanecer string');
+    assert.strictEqual(dataRpsCell.v, '6/30/26');
   });
 
   it('T05: Valor Fatura e Valor Banco ficam numéricos sem formato específico (Geral)', () => {

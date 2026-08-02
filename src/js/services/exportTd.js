@@ -73,6 +73,10 @@ export function exportTd(dadosFinal, options = {}) {
 }
 
 export function classifyExportSheet(row) {
+  // Linhas com atendimento pendente vão obrigatoriamente para Pendentes,
+  // antes de qualquer outra classificação.
+  if (row.pendenciaAtendimento) return SHEET_NAME.PENDENTES;
+
   // Espelha a hierarquia dos filtros do painel (FILTERS em paymentPredicates.js).
   // O painel é fonte da verdade: cada aba do export deve conter EXATAMENTE as
   // rows que o filtro correspondente do painel devolveria, sem reclassificá-las.
@@ -188,23 +192,17 @@ function parseDateBRToSerial(value) {
   const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!match) return null;
   let [, a, b, yyyy] = match;
-  // Tenta BR (dd/mm/yyyy) primeiro; se o 'mês' for > 12, tenta US (mm/dd/yyyy).
-  // É o caso de planilhas BI/MV antigas com células em formato m/d/yy.
-  const tries = [
-    { day: a, month: b },                 // BR
-    { day: b, month: a },                 // US fallback
-  ];
-  for (const { day, month } of tries) {
-    const dayPad = day.padStart(2, '0');
-    const monthPad = month.padStart(2, '0');
-    let yyyyFull = yyyy;
-    if (yyyyFull.length === 2) yyyyFull = (Number(yyyyFull) <= 69 ? '20' : '19') + yyyyFull;
-    const dayNum = Number(dayPad), monthNum = Number(monthPad), yearNum = Number(yyyyFull);
-    if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum > 0) {
-      const utc = Date.UTC(yearNum, monthNum - 1, dayNum);
-      const excelEpoch = Date.UTC(1899, 11, 30);
-      return (utc - excelEpoch) / 86400000;
-    }
+  // Apenas formato brasileiro (dd/mm/yyyy). Mês > 12 é rejeitado.
+  const day = a, month = b;
+  const dayPad = day.padStart(2, '0');
+  const monthPad = month.padStart(2, '0');
+  let yyyyFull = yyyy;
+  if (yyyyFull.length === 2) yyyyFull = (Number(yyyyFull) <= 69 ? '20' : '19') + yyyyFull;
+  const dayNum = Number(dayPad), monthNum = Number(monthPad), yearNum = Number(yyyyFull);
+  if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum > 0) {
+    const utc = Date.UTC(yearNum, monthNum - 1, dayNum);
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    return (utc - excelEpoch) / 86400000;
   }
   return null;
 }
@@ -245,7 +243,7 @@ function buildPaymentRows(dadosFinal, layout, cardValueSource = r => r.valorCart
       out.push(createExportRow(layout, {
         data: r.dataPagamento || r.dataVenda || '',
         dataBanco: r.dataPagamento || r.dataVenda || '',
-        registro: r.registro || '',
+        registro: r.atendimento || r.registro || '',
         contaFatura: r.contaFatura || '',
         valorFatura: r.valorFatura || 0,
         valorBanco: cardValueSource(r),
@@ -263,7 +261,7 @@ function buildPaymentRows(dadosFinal, layout, cardValueSource = r => r.valorCart
       out.push(createExportRow(layout, {
         data: r.dataPagamento || '',
         dataBanco: '',
-        registro: r.registro || '',
+        registro: r.atendimento || r.registro || '',
         contaFatura: r.contaFatura || '',
         valorFatura: r.valorFatura || 0,
         valorBanco: r.valorDinheiro || 0,
