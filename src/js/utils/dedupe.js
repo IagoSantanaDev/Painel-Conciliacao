@@ -23,8 +23,8 @@ export function deduplicateByFields(rows, fields) {
 }
 
 export const HOSPITAL_DEDUPE_KEY = [
-  'registro',
-  'contaFatura',
+  'atendimento',
+  'tituloTasy',
   'dataPagamento',
   'horaPagamento',
   'autorizador',
@@ -35,8 +35,9 @@ export const HOSPITAL_DEDUPE_KEY = [
   'bandeira',
   'formaPagamento',
   'parcelas',
-  'lote',
+  'contaFatura',
   'caixa',
+  'lote',
 ];
 
 export const CIELO_DEDUPE_KEY = [

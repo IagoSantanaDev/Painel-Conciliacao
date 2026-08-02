@@ -149,7 +149,7 @@ export function invalidateMetricsCache() {
 export function renderMetrics(el, state) {
   const metrics = _cachedMetrics || (_cachedMetrics = computeMetrics(state.dadosFinal, state.duplicateAutorizadores));
   const cards = [
-    ['Total registros', metrics.total, ''],
+    ['Total linhas', metrics.total, ''],
     ['Conciliados', metrics.conciliados, 'primary'],
     ['Cartão', metrics.cartao, ''],
     ['Dinheiro/Espécie', metrics.dinheiro, ''],
@@ -205,6 +205,7 @@ export function rowMatchesFilter(row, filter) {
 export function rowMatchesSearch(row, query) {
   if (!query) return true;
   const haystack = normalizeText([
+    row.atendimento,
     row.registro,
     row.caixa,
     row.lote,
@@ -287,7 +288,7 @@ function renderTabela(el, state) {
   const suffix = !hasSearch && (filter === 'todos' || !filter) && naoEncontradoCount > 0
     ? ` (${naoEncontradoCount} não encontrado)`
     : '';
-  el.resultCount.textContent = `${results.length} de ${total} registro(s)${suffix}`;
+  el.resultCount.textContent = `${results.length} de ${total} linha(s)${suffix}`;
 
   if (_currentRenderHandle) {
     _currentRenderHandle.cancel();
@@ -315,7 +316,7 @@ export function renderTableRow(row, index, duplicateAutorizadores) {
 
   return `<tr data-idx="${String(index)}" class="${rowClass}">
     <td class="td-conciliado">${renderConciliadoCell(effectiveRow, index)}</td>
-    <td>${cell(effectiveRow, index, 'registro')}</td>
+    <td>${atendimentoCell(effectiveRow, index)}</td>
     <td>${cell(effectiveRow, index, 'caixa')}</td>
     <td>${cell(effectiveRow, index, 'lote')}</td>
     <td>${cell(effectiveRow, index, 'autorizador', 'text')}</td>
@@ -355,6 +356,7 @@ const BADGE_CLASS_MAP = Object.freeze({
 function getBadgeClass(item, row) {
   if (BADGE_CLASS_MAP[item] !== undefined) return BADGE_CLASS_MAP[item];
   if (item === 'Auth duplicado') return 'danger';
+  if (item === 'Atendimento não encontrado') return 'warning';
   if (item.includes('Dinheiro') && item.includes('Diferença')) return 'danger';
   if (item.includes('Conciliado') || item.includes('Dinheiro')) return 'success';
   if (item.includes('Divergência') || item.includes('Diferença') || item.includes(STATUS_LABEL.NAO_ENCONTRADO) || item.includes('Sem autorizador') || isCieloOnly(row)) return 'danger';
@@ -366,6 +368,16 @@ function getBadgeClass(item, row) {
 function needsConciliarCheckbox(row) {
   if (isCorrigido(row)) return true;
   return LABELS_REQUIRING_CHECKBOX.has(row.statusLabel);
+}
+
+function atendimentoCell(row, index) {
+  const display = row.atendimento || row.registro || '';
+  if (isCorrigido(row)) return escapeHtml(display || '—');
+  if (row.pendenciaAtendimento) {
+    return `<input class="edit" data-index="${String(index)}" data-field="atendimento" value="${escapeAttr(row.atendimento || row.tituloTasy || '')}" aria-label="atendimento">`;
+  }
+  if (!isOkRow(row)) return escapeHtml(display || '—');
+  return escapeHtml(display || '—');
 }
 
 function cell(row, index, field, type = 'text') {
