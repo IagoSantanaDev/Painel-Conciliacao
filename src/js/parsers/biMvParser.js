@@ -41,8 +41,8 @@ function mapBiRow(row, index, norm) {
   const valorCartao = getMoney(row, ['valorCartao'], norm);
   const valorDinheiro = getMoney(row, ['valorDinheiro'], norm);
   const valorFatura = getMoney(row, ['valorFatura'], norm);
-  const registro = getString(row, ['registro'], norm);
-  if (!registro && valorCartao === 0 && valorDinheiro === 0 && valorFatura === 0) return null;
+  const atendimento = getString(row, ['atendimento'], norm);
+  if (!atendimento && valorCartao === 0 && valorDinheiro === 0 && valorFatura === 0) return null;
 
   const formaRaw = getValue(row, ['debitoCredito'], norm);
   const bandeira = getValue(row, ['bandeira'], norm);
@@ -51,7 +51,8 @@ function mapBiRow(row, index, norm) {
     idPrefix: ID_PREFIX.BI,
     index,
     dataPagamento: normalizeDateBR(getString(row, ['dataPagamento'], norm)),
-    registro,
+    registro: atendimento,
+    atendimento,
     caixa: getString(row, ['caixa'], norm),
     lote: getString(row, ['lote'], norm),
     contaFatura: getString(row, ['contaFatura'], norm),

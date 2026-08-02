@@ -51,12 +51,14 @@ export function createHospitalRow({ idPrefix, index, dataPagamento = '', horaPag
   autorizadorDoc = '',
   valorCartao = 0, valorDinheiro = 0, valorFatura = 0, desconto = '',
   formaPagamento = '', tipoCartao = '', bandeira = '', parcelas = '',
-  observacoes = [], raw = {}, } = {}) {
+  observacoes = [], raw = {},
+  atendimento = '', tituloTasy = '', } = {}) {
   return {
     idInterno: createId(idPrefix, index),
     origem: idPrefix === ID_PREFIX.PDF_CARD || idPrefix === ID_PREFIX.PDF_CASH ? 'PDF_TASY' : 'BI_MV',
     dataPagamento, horaPagamento, registro, caixa, lote, contaFatura, autorizador,
     autorizadorDoc,
+    atendimento, tituloTasy,
     valorCartao, valorDinheiro, valorFatura, desconto,
     formaPagamento, tipoCartao, bandeira, parcelas, observacoes, raw,
   };

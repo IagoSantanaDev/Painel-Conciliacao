@@ -185,6 +185,12 @@ export function reconcileOne(row, cieloIndex, matchedCieloIds = new Set(), dupli
     result.status.push('À Conciliar');
   }
 
+  if (row.origem === 'PDF_TASY' && row.tituloTasy && row.atendimentoResolvido === false) {
+    result.status.push('Atendimento não encontrado');
+    result.pendenciaAtendimento = true;
+    result.observacoes.push(`Atendimento não localizado nas planilhas para o título ${row.tituloTasy}.`);
+  }
+
   result.status = _dedupeStatus(result.status);
   result.statusLabel = getStatusLabel(result.status);
   return result;
@@ -231,7 +237,7 @@ function getStatusLabel(status) {
   if (status.some(s => s.includes('Divergência') || s.includes('Diferença'))) return STATUS_LABEL.DIVERGENTE;
   if (status.includes('Sem autorizador')) return STATUS_LABEL.DIVERGENTE;
   if (status.some(s => s.includes(STATUS_LABEL.NAO_ENCONTRADO))) return STATUS_LABEL.NAO_ENCONTRADO;
-  if (status.includes('Sem valor de pagamento') || status.includes('Pendente revisão')) return STATUS_LABEL.PENDENTE;
+  if (status.includes('Sem valor de pagamento') || status.includes('Pendente revisão') || status.some(s => s.includes('Atendimento não encontrado'))) return STATUS_LABEL.PENDENTE;
   if (status.includes(STATUS_LABEL.DINHEIRO)) return STATUS_LABEL.DINHEIRO;
   if (status.includes(STATUS_LABEL.PAGAMENTO_MISTO)) return STATUS_LABEL.PAGAMENTO_MISTO;
   return STATUS_LABEL.CONCILIADO;

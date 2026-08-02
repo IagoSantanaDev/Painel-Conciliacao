@@ -47,7 +47,7 @@
                 </svg></span>
               <span class="drop-copy">
                 <span class="drop-title">Arquivo hospitalar</span>
-                <span class="drop-subtitle">Um ou mais arquivos BI/MV em CSV/planilha ou PDF Tasy</span>
+                <span class="drop-subtitle">Um ou mais arquivos BI/MV, PDFs Tasy e planilhas de atendimento .xlsx. PDFs Tasy exigem uma planilha contendo "Título" e "Atendimento".</span>
                 <span class="drop-file-name" id="hospitalFileName">Nenhum arquivo selecionado</span>
               </span>
             </label>
@@ -97,12 +97,12 @@
               <div class="table-controls" aria-label="Pesquisa da tabela">
                 <label class="control-field search-field">
                   <input id="tableSearch" type="search"
-                    aria-label="Pesquisar por registro, caixa, lote, autorizador ou data"
-                    placeholder="Registro, caixa, lote, autorizador ou data">
+                    aria-label="Pesquisar por atendimento, caixa, lote, autorizador ou data"
+                    placeholder="Atendimento, caixa, lote, autorizador ou data">
                 </label>
               </div>
               <div class="filters" id="filters" aria-label="Filtros de status"></div>
-              <span class="muted" id="resultCount">0 registros</span>
+              <span class="muted" id="resultCount">0 linhas</span>
             </div>
             <div id="emptyState" class="empty">
               <div><strong>Nenhuma conciliação processada</strong><span>Importe os arquivos e clique em “Processar
@@ -112,13 +112,13 @@
               <table id="tabela">
                 <caption class="sr-only">
                   Tabela de conciliação de vendas: cada linha é um registro hospitalar
-                  com número de registro, caixa, lote, autorizador, valores, forma de pagamento
+                  com número de atendimento, caixa, lote, autorizador, valores, forma de pagamento
                   e status de reconciliação.
                 </caption>
                 <thead>
                   <tr>
                     <th scope="col" class="th-conciliado" aria-label="Marcar como corrigido"></th>
-                    <th scope="col">Número Registro</th>
+                    <th scope="col">Número Atendimento</th>
                     <th scope="col">Caixa</th>
                     <th scope="col">Lote</th>
                     <th scope="col">Autorizador</th>

@@ -1,7 +1,8 @@
-import { isPdfFile } from '../utils/fileExt.js';
+import { isPdfFile, getFileExt } from '../utils/fileExt.js';
 import { parseBiMv } from '../parsers/biMvParser.js';
 import { parseCielo } from '../parsers/cieloParser.js';
 import { parseTasyPdf } from '../parsers/pdfTasyParser.js';
+import { parseAtendimento, consolidateAtendimentoIndices } from '../parsers/atendimentoParser.js';
 import { emptyParseResult } from '../utils/dedupe.js';
 
 export async function parseHospitalFile(file) {
@@ -29,14 +30,51 @@ export async function parseFilesSettled(files, parser, label) {
 }
 
 export async function parseHospitalFiles(files) {
-  const { results, errors } = await parseFilesSettled(files, parseHospitalFile, 'Hospital');
+  const pdfFiles = files.filter(isPdfFile);
+  const sheetFiles = files.filter(f => !isPdfFile(f));
 
-  const source = results.length === 0
-    ? ''
-    : (results.some(result => result.source === 'PDF_TASY') ? 'PDF_TASY' : 'BI_MV');
-  const merged = mergeParseResults(results, { source });
+  if (!pdfFiles.length) {
+    const { results, errors } = await parseFilesSettled(sheetFiles, parseBiMv, 'BI/MV');
+    const merged = mergeParseResults(results, { source: results.length === 0 ? '' : 'BI_MV' });
+    merged.warnings.unshift(...errors);
+    return merged;
+  }
 
-  merged.warnings.unshift(...errors);
+  const atendimentoResults = [];
+  const biMvCandidates = [];
+
+  for (const file of sheetFiles) {
+    if (getFileExt(file) === 'xlsx') {
+      try {
+        const result = await parseAtendimento(file);
+        atendimentoResults.push(result);
+      } catch {
+        biMvCandidates.push(file);
+      }
+    } else {
+      biMvCandidates.push(file);
+    }
+  }
+
+  if (!atendimentoResults.length) {
+    throw new Error(
+      'Foram selecionados PDFs Tasy, mas nenhuma planilha de atendimento valida foi encontrada. ' +
+      'Adicione um arquivo .xlsx contendo as colunas "Titulo" e "Atendimento".'
+    );
+  }
+
+  const atendimentoIndex = consolidateAtendimentoIndices(atendimentoResults);
+
+  const [biMvParsed, pdfParsed] = await Promise.all([
+    parseFilesSettled(biMvCandidates, parseBiMv, 'BI/MV'),
+    parseFilesSettled(pdfFiles, parseTasyPdf, 'PDF Tasy'),
+  ]);
+
+  const allResults = [...pdfParsed.results, ...biMvParsed.results];
+  const merged = mergeParseResults(allResults, { source: 'PDF_TASY' });
+  merged.atendimentoIndex = atendimentoIndex;
+
+  merged.warnings.unshift(...pdfParsed.errors, ...biMvParsed.errors);
   return merged;
 }
 

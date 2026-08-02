@@ -175,8 +175,8 @@ describe('dedup cross-source', () => {
     const { deduplicateHospitalRows } = await import('../../src/js/utils/dedupe.js');
 
     const duplicateRows = [
-      { registro: 'REG001', contaFatura: 'F001', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '' },
-      { registro: 'REG001', contaFatura: 'F001', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '' },
+      { atendimento: '', tituloTasy: '', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', autorizadorDoc: '', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '', contaFatura: 'F001', caixa: '', lote: '' },
+      { atendimento: '', tituloTasy: '', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', autorizadorDoc: '', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '', contaFatura: 'F001', caixa: '', lote: '' },
     ];
 
     const result = deduplicateHospitalRows(duplicateRows);
@@ -187,8 +187,8 @@ describe('dedup cross-source', () => {
     const { deduplicateHospitalRows } = await import('../../src/js/utils/dedupe.js');
 
     const distinctRows = [
-      { registro: 'REG001', contaFatura: 'F001', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '' },
-      { registro: 'REG002', contaFatura: 'F001', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '' },
+      { atendimento: 'REG001', tituloTasy: '', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', autorizadorDoc: '', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '', contaFatura: 'F001', caixa: '', lote: '' },
+      { atendimento: 'REG002', tituloTasy: '', dataPagamento: '18/06/2026', horaPagamento: '', autorizador: 'AUTH001', autorizadorDoc: '', valorCartao: 100, valorDinheiro: 0, valorFatura: 100, bandeira: 'VISA', formaPagamento: 'CRÉDITO', parcelas: '', contaFatura: 'F001', caixa: '', lote: '' },
     ];
 
     const result = deduplicateHospitalRows(distinctRows);

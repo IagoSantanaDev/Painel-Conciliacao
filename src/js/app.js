@@ -2,6 +2,7 @@ import { setupDropZone } from './ui/dropZone.js';
 import { parseCieloFiles, parseHospitalFiles } from './services/parsePipeline.js';
 import { buildCieloIndexWithDedup, reconcileOne, reconcileRows } from './services/reconciliation.js';
 import { buildConsumedCieloIds, isOkRow } from './services/paymentPredicates.js';
+import { resolveAtendimento } from './services/atendimentoResolver.js';
 import { exportTd } from './services/exportTd.js';
 import { normalizeAuth, parseMoneyBRStrict } from './utils/format.js';
 import { normalizeText } from './utils/string.js';
@@ -119,12 +120,13 @@ async function processar() {
 
     if (myGen !== _procGeneration) return;
 
-    state.hospitalRows = deduplicateCrossSourceRows(hospitalResult.rows);
+    const resolvedHospital = resolveAtendimento(hospitalResult.rows, hospitalResult.atendimentoIndex);
+    state.hospitalRows = deduplicateCrossSourceRows(resolvedHospital.rows);
     state.cieloRows = cieloResult.rows;
     state.cieloIndex = buildCieloIndexWithDedup(state.cieloRows).index;
     state.duplicateAutorizadores = findDuplicateAutorizadores(state.hospitalRows);
     state.dadosFinal = reconcileRows(state.hospitalRows, state.cieloIndex, state.duplicateAutorizadores);
-    state.warnings = [...(hospitalResult.warnings || []), ...(cieloResult.warnings || [])];
+    state.warnings = [...(hospitalResult.warnings || []), ...(resolvedHospital.warnings || []), ...(cieloResult.warnings || [])];
     if (hospitalResult.ignoredRows) state.warnings.push(`${hospitalResult.ignoredRows} linha(s) ignorada(s) no BI/MV.`);
     if (hospitalResult.ignoredLines) state.warnings.push(`${hospitalResult.ignoredLines} linha(s) ignorada(s) no PDF Tasy.`);
     if (cieloResult.ignoredRows) state.warnings.push(`${cieloResult.ignoredRows} linha(s) de preâmbulo ignorada(s) no relatório Cielo.`);
@@ -147,7 +149,7 @@ async function processar() {
     const failurePrefix = failedFilesCount > 0
       ? `${failedFilesCount} arquivo(s) falhou(aram) e foi(ram) ignorado(s). `
       : '';
-    showAlert(el, 'success', `${failurePrefix}${state.dadosFinal.length} registro(s) processado(s) a partir de ${hospitalFiles.length + cieloFiles.length} arquivo(s). ${exportMessage}`);
+    showAlert(el, 'success', `${failurePrefix}${state.dadosFinal.length} linha(s) processada(s) a partir de ${hospitalFiles.length + cieloFiles.length} arquivo(s). ${exportMessage}`);
   } catch (error) {
 
     console.error(error.message || error);
@@ -171,6 +173,12 @@ function atualizar(index, campo, valor) {
   }
   else if (campo === 'autorizador') row[campo] = normalizeAuth(valor);
   else row[campo] = valor;
+
+  if (campo === 'atendimento' && String(valor || '').trim()) {
+    row.atendimentoResolvido = true;
+    row.pendenciaAtendimento = false;
+    row.atendimentoManual = true;
+  }
 
   reconciliarEAtualizar(index, row);
 }

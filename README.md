@@ -4,11 +4,11 @@ Painel de conciliação de vendas entre **Cielo** (spreadsheet) e **BI/MV** (CSV
 
 ## Fluxo
 
-1. **Upload**: usuário seleciona arquivos Cielo (CSV/XLSX) e hospitalares (CSV/XLSX ou PDF Tasy)
-2. **Parsing**: cada arquivo é parseado para registros normalizados com campos como `autorizador`, `valorBruto`, `valorCartao`, `valorDinheiro`
+1. **Upload**: usuário seleciona arquivos Cielo (CSV/XLSX) e hospitalares (CSV/XLSX, PDF Tasy ou planilha de atendimento .xlsx)
+2. **Parsing**: cada arquivo é parseado para registros normalizados com campos como `autorizador`, `valorBruto`, `valorCartao`, `valorDinheiro`. PDFs Tasy exigem ao menos uma planilha de atendimento com colunas "Título" e "Atendimento".
 3. **Reconciliação**: cada venda Cielo é cruzada com as hospitalares por `autorizador` + `valor`; consumo único por linha hospitalar
-4. **Visualização**: painel exibe tabela com status badges, métricas por filtro e ordenação
-5. **Exportação**: exportação TD/XLSX gera abas mutuamente exclusivas: Conciliados / Cartão / Dinheiro / Divergentes / Não encontrados / Pendentes
+4. **Visualização**: painel exibe tabela com status badges, métricas por filtro e ordenação. Coluna "Número Atendimento" substitui "Número Registro" (títulos Tasy resolvidos exibem o atendimento; não resolvidos mostram o título como fallback).
+5. **Exportação**: exportação TD/XLSX gera abas mutuamente exclusivas: Conciliados / Cartão / Dinheiro / Divergentes / Não encontrados / Pendentes. Linhas com atendimento não resolvido vão obrigatoriamente para Pendentes.
 
 ## Status canônico
 
@@ -18,6 +18,7 @@ Painel de conciliação de vendas entre **Cielo** (spreadsheet) e **BI/MV** (CSV
 | `corrigido === true` + Dinheiro/Misto | `"Corrigido"` | success |
 | `valorCartao > 0` + match Cielo | `"Conciliado"` | success |
 | `valorCartao > 0` + match parcial/erro | `"Divergente"` | danger |
+| Pendência de atendimento (PDF Tasy) | `"Pendente"` | warning |
 | `valorCartao > 0` + nenhum match | `"Pendente"` | warning |
 | `valorDinheiro > 0` + sem bloqueadores | `"Dinheiro"` ou `"Pagamento misto"` + `"À Conciliar"` | info/warning |
 | Sem autorizador | `"Sem autorizador"` | warning |
@@ -43,16 +44,16 @@ Linhas com `corrigido === true` sempre ganham badge `"Corrigido"` (success).
 
 ```bash
 npm install          # instala dependências (opcional em prod — vendor commitado)
-npm test             # roda os 523 testes (cross-platform via scripts/run-tests.mjs)
+npm test             # roda os 569 testes (cross-platform via scripts/run-tests.mjs)
 ```
 
 ## Testes
 
-523 testes em 82 suítes, ~400ms. Detalhes em `tests/README.md`.
+569 testes em 86 suítes, ~700ms. Detalhes em `tests/README.md`.
 
 - `tests/utils/` — `format.js`, `sanitize.js`, `string.js`, `dedupe.js`, `validateFiles.js`
-- `tests/parsers/` — `parsers.js` (biMv/cielo via `parseSpreadsheet`), `fileReaders.js`, `dedup.js`, `pdfTasyParser.js`
-- `tests/services/` — `reconciliation.js`, `reconcileOneBranches.js`, `exportTd.js`, `paymentPredicates.js`, `parsePipeline.js`, `statusLabel.js`
+- `tests/parsers/` — `parsers.js` (biMv/cielo via `parseSpreadsheet`), `fileReaders.js`, `dedup.js`, `pdfTasyParser.js`, `atendimentoParser.js`
+- `tests/services/` — `reconciliation.js`, `reconcileOneBranches.js`, `exportTd.js`, `paymentPredicates.js`, `parsePipeline.js`, `statusLabel.js`, `undoStack.js`, `atendimentoResolver.js`
 - `tests/ui/` — `render.js`, `chunkedRender.js`, `dropZone.js`
 - `tests/integration/` — pipeline completo de upload + contratos de vendor (pdf.js, SheetJS, defer de index.html)
 - `tests/_smoke.test.mjs` — contratos de API exports e parity
@@ -69,9 +70,11 @@ src/
       biMvParser.js       parseBiMv
       cieloParser.js      parseCielo
       pdfTasyParser.js    parseTasyPdf, getPdfJs (SRI runtime), RECEIPT_ESPECIE_RX, createDocumentTracker, ingestDocumentInfo, consumeDocumentInfo
+      atendimentoParser.js parseAtendimento, consolidateAtendimentoIndices — extrai índice título→atendimento de planilhas .xlsx
       fileReaders.js      parseCsvRows, parseWorkbookRows, rowsToObjects
     services/
       reconciliation.js    reconcileRows, reconcileOne, buildCieloIndexWithDedup
+      atendimentoResolver.js resolveAtendimento — transforma títulos Tasy em atendimentos usando índice das planilhas
       exportTd.js         exportTd, classifyExportSheet, buildSheetGroups, TD_COLUMNS, TASY_CIELO_COLUMNS, LAYOUTS
       paymentPredicates.js STATUS_LABEL, SHEET_NAME, SHEET_ORDER, BLOCKING_KEYWORDS, FILTERS, EVENTO_PARTICULAR,
                            isOkRowBridge, isNaoEncontrado, isCieloOnly, isCorrigido, isOkRow, isDivergente, isPendente,
@@ -151,7 +154,7 @@ src/
 - PDF Tasy: `RECEIPT_ESPECIE_RX` (pré-compilado, exportado para testes) casa com `CX - Recebimento Espécie` E `Especie` (com/sem acento)
 - PDF Tasy: `currentDocumentInfo` (título) é compartilhado entre autorizações até aparecer outro `CX - Recebimento de Título Particular`; `consumeDocumentInfo` é chamado APENAS quando uma row é efetivamente criada
 - `parsePipeline` usa `Promise.allSettled` em `parseFilesSettled` — falha de um arquivo não bloqueia o lote
-- `deduplicateCrossSourceRows` colapsa duplicatas entre BI/MV e PDF Tasy usando chave canônica de 14 campos (registro, contaFatura, dataPagamento, horaPagamento, autorizador, autorizadorDoc, valorCartao, valorDinheiro, valorFatura, bandeira, formaPagamento, parcelas, lote, caixa)
+- `deduplicateCrossSourceRows` colapsa duplicatas entre BI/MV e PDF Tasy usando chave canônica de 15 campos (atendimento, tituloTasy, dataPagamento, horaPagamento, autorizador, autorizadorDoc, valorCartao, valorDinheiro, valorFatura, bandeira, formaPagamento, parcelas, contaFatura, caixa, lote)
 
 ## Deploy
 
