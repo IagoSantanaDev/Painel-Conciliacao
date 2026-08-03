@@ -666,3 +666,109 @@ describe('reconcileOne', () => {
   });
 
 });
+
+describe('PDF sem planilha de atendimento', () => {
+
+  it('PDF row sem planilha (atendimentoResolvido undefined) fica Pendente com "Atendimento não encontrado"', () => {
+    const hospitalRows = [
+      {
+        id: 1, registro: 'R001', caixa: 'C1', lote: 'L1', autorizador: 'A12345',
+        valorCartao: 100, valorDinheiro: 0, valorFatura: 100, desconto: 0,
+        bandeira: 'VISA', formaPagamento: 'Crédito', parcelas: '1',
+        numeroMaquina: 'MAQ001', corrigido: false,
+        origem: 'PDF_TASY',
+        tituloTasy: '903655',
+        // atendimentoResolvido não existe (undefined)
+      },
+    ];
+    const cieloRows = [
+      { idInterno: 'CIELO-001', autorizador: 'A12345', valorBruto: 100, bandeira: 'VISA',
+        formaPagamento: 'Crédito', parcelas: '1', numeroMaquina: 'MAQ001',
+        dataVenda: '2024-01-15', horaVenda: '10:00', nsu: 'NSU' },
+    ];
+
+    const cieloIndex = reconciliation.buildCieloIndexWithDedup(cieloRows).index;
+    const result = reconciliation.reconcileOne(hospitalRows[0], cieloIndex);
+
+    assert.ok(result.status.includes('Atendimento não encontrado'),
+      `Deveria marcar 'Atendimento não encontrado', status: ${JSON.stringify(result.status)}`);
+    assert.ok(result.pendenciaAtendimento === true,
+      'pendenciaAtendimento deveria ser true');
+    assert.ok(result.observacoes.some(o => o.includes('903655')),
+      `Observação deve mencionar o título 903655. observacoes: ${JSON.stringify(result.observacoes)}`);
+  });
+
+  it('PDF row com atendimentoResolvido=false (título não encontrado na planilha) fica Pendente', () => {
+    const hospitalRows = [
+      {
+        id: 1, registro: 'R001', caixa: 'C1', lote: 'L1', autorizador: 'A12345',
+        valorCartao: 100, valorDinheiro: 0, valorFatura: 100, desconto: 0,
+        bandeira: 'VISA', formaPagamento: 'Crédito', parcelas: '1',
+        numeroMaquina: 'MAQ001', corrigido: false,
+        origem: 'PDF_TASY',
+        tituloTasy: '999999',
+        atendimentoResolvido: false,
+      },
+    ];
+    const cieloRows = [
+      { idInterno: 'CIELO-001', autorizador: 'A12345', valorBruto: 100, bandeira: 'VISA',
+        formaPagamento: 'Crédito', parcelas: '1', numeroMaquina: 'MAQ001',
+        dataVenda: '2024-01-15', horaVenda: '10:00', nsu: 'NSU' },
+    ];
+
+    const cieloIndex = reconciliation.buildCieloIndexWithDedup(cieloRows).index;
+    const result = reconciliation.reconcileOne(hospitalRows[0], cieloIndex);
+
+    assert.ok(result.status.includes('Atendimento não encontrado'),
+      `Deveria marcar 'Atendimento não encontrado', status: ${JSON.stringify(result.status)}`);
+    assert.ok(result.observacoes.some(o => o.includes('999999')),
+      `Observação deve mencionar o título. observacoes: ${JSON.stringify(result.observacoes)}`);
+  });
+
+  it('PDF row dinheiro sem tituloTasy NÃO dispara "Atendimento não encontrado"', () => {
+    const hospitalRows = [
+      {
+        id: 1, registro: 'R001', caixa: 'C1', lote: 'L1', autorizador: '',
+        valorCartao: 0, valorDinheiro: 50, valorFatura: 50, desconto: 0,
+        bandeira: '', formaPagamento: 'ESPÉCIE', parcelas: '',
+        numeroMaquina: '', corrigido: false,
+        origem: 'PDF_TASY',
+        // sem tituloTasy
+      },
+    ];
+
+    const cieloIndex = new Map();
+    const result = reconciliation.reconcileOne(hospitalRows[0], cieloIndex);
+
+    assert.ok(!result.status.includes('Atendimento não encontrado'),
+      `Dinheiro sem tituloTasy não deveria marcar atendimento. status: ${JSON.stringify(result.status)}`);
+    assert.ok(result.status.includes('Dinheiro'),
+      `Deveria ser Dinheiro. status: ${JSON.stringify(result.status)}`);
+  });
+
+  it('BI_MV row não é afetada pela checagem de atendimento', () => {
+    const hospitalRows = [
+      {
+        id: 1, registro: 'R001', caixa: 'C1', lote: 'L1', autorizador: 'A12345',
+        valorCartao: 100, valorDinheiro: 0, valorFatura: 100, desconto: 0,
+        bandeira: 'VISA', formaPagamento: 'Crédito', parcelas: '1',
+        numeroMaquina: 'MAQ001', corrigido: false,
+        // sem origem PDF_TASY
+      },
+    ];
+    const cieloRows = [
+      { idInterno: 'CIELO-001', autorizador: 'A12345', valorBruto: 100, bandeira: 'VISA',
+        formaPagamento: 'Crédito', parcelas: '1', numeroMaquina: 'MAQ001',
+        dataVenda: '2024-01-15', horaVenda: '10:00', nsu: 'NSU' },
+    ];
+
+    const cieloIndex = reconciliation.buildCieloIndexWithDedup(cieloRows).index;
+    const result = reconciliation.reconcileOne(hospitalRows[0], cieloIndex);
+
+    assert.ok(!result.status.includes('Atendimento não encontrado'),
+      `Row BI_MV não deveria marcar atendimento. status: ${JSON.stringify(result.status)}`);
+    assert.ok(result.status.includes('Conciliado'),
+      `Deveria Conciliar normalmente. status: ${JSON.stringify(result.status)}`);
+  });
+
+});

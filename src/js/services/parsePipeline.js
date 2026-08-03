@@ -42,6 +42,7 @@ export async function parseHospitalFiles(files) {
 
   const atendimentoResults = [];
   const biMvCandidates = [];
+  const warnings = [];
 
   for (const file of sheetFiles) {
     if (getFileExt(file) === 'xlsx') {
@@ -56,14 +57,16 @@ export async function parseHospitalFiles(files) {
     }
   }
 
+  const atendimentoIndex = atendimentoResults.length
+    ? consolidateAtendimentoIndices(atendimentoResults)
+    : { index: new Map(), warnings: [], pairs: 0 };
+
   if (!atendimentoResults.length) {
-    throw new Error(
-      'Foram selecionados PDFs Tasy, mas nenhuma planilha de atendimento valida foi encontrada. ' +
-      'Adicione um arquivo .xlsx contendo as colunas "Titulo" e "Atendimento".'
+    warnings.push(
+      'Nenhuma planilha de atendimento (colunas "Titulo" e "Atendimento") foi encontrada. ' +
+      'Título e atendimento não serão vinculados automaticamente.'
     );
   }
-
-  const atendimentoIndex = consolidateAtendimentoIndices(atendimentoResults);
 
   const [biMvParsed, pdfParsed] = await Promise.all([
     parseFilesSettled(biMvCandidates, parseBiMv, 'BI/MV'),
@@ -74,7 +77,7 @@ export async function parseHospitalFiles(files) {
   const merged = mergeParseResults(allResults, { source: 'PDF_TASY' });
   merged.atendimentoIndex = atendimentoIndex;
 
-  merged.warnings.unshift(...pdfParsed.errors, ...biMvParsed.errors);
+  merged.warnings.unshift(...warnings, ...pdfParsed.errors, ...biMvParsed.errors);
   return merged;
 }
 

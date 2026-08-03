@@ -110,6 +110,7 @@ export function reconcileOne(row, cieloIndex, matchedCieloIds = new Set(), dupli
   if (result.valorCartao > 0) {
     if (!result.autorizador) {
       result.status.push('Sem autorizador');
+      // Não tenta buscar na Cielo; fica pendente para revisão manual
     } else {
       const allowReuse = duplicateAutorizadores instanceof Set
         && result.autorizador
@@ -185,10 +186,14 @@ export function reconcileOne(row, cieloIndex, matchedCieloIds = new Set(), dupli
     result.status.push('À Conciliar');
   }
 
-  if (row.origem === 'PDF_TASY' && row.tituloTasy && row.atendimentoResolvido === false) {
+  if (row.origem === 'PDF_TASY' && row.tituloTasy && row.atendimentoResolvido !== true) {
     result.status.push('Atendimento não encontrado');
     result.pendenciaAtendimento = true;
-    result.observacoes.push(`Atendimento não localizado nas planilhas para o título ${row.tituloTasy}.`);
+    result.observacoes.push(
+      row.tituloTasy
+        ? `Atendimento não localizado nas planilhas para o título ${row.tituloTasy}.`
+        : 'Atendimento não pode ser vinculado: planilha de atendimento não foi fornecida.'
+    );
   }
 
   result.status = _dedupeStatus(result.status);
